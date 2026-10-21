@@ -1,0 +1,93 @@
+# Dependencies
+node_modules/
+.npm/
+
+# ---------------------------------------------------------------------------
+# Environment / secrets  (NEVER commit these)
+# Every .env* file is ignored; .env.example is the only one that may be
+# committed, and it must contain placeholders only - never a real key.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+secrets/
+secrets.*
+*credentials*
+*_rsa
+id_rsa*
+service-account*.json
+
+# ---------------------------------------------------------------------------
+# Local application data (uploaded documents, embedded database, model cache)
+# ---------------------------------------------------------------------------
+storage/
+data/
+server/storage/
+.cache/
+models/
+uploads/
+artifacts/
+pgdata/
+*.pglite/
+
+# Embedded / local databases (Postgres, SQLite, DuckDB) and their side files
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*-wal
+*-shm
+
+# ---------------------------------------------------------------------------
+# Logs
+# ---------------------------------------------------------------------------
+logs/
+*.log
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---------------------------------------------------------------------------
+# Build output
+# ---------------------------------------------------------------------------
+web/dist/
+dist/
+build/
+*.tsbuildinfo
+
+# ---------------------------------------------------------------------------
+# Test output
+# ---------------------------------------------------------------------------
+coverage/
+playwright-report/
+test-results/
+.blob-report/
+
+# ---------------------------------------------------------------------------
+# Editor / OS
+# ---------------------------------------------------------------------------
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------------------------------------------------------------------------
+# Temp
+# ---------------------------------------------------------------------------
+tmp/
+temp/
+*.tmp
+*.bak
+*.orig
+*.rej

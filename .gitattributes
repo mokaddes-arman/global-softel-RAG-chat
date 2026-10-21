@@ -1,0 +1,22 @@
+# Normalise line endings: store LF in the repository, check out CRLF on Windows.
+* text=auto eol=lf
+
+# Windows-only helper scripts must stay CRLF.
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+*.ps1  text eol=crlf
+
+# Binary files - never diffed or line-ending converted.
+*.pdf   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.zip   binary
+*.gz    binary
+*.woff  binary
+*.woff2 binary
+
+# Lockfiles and generated bundles keep LF.
+package-lock.json text eol=lf

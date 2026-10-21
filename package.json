@@ -1,0 +1,32 @@
+{
+  "name": "global-softel-rag-chat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Locally hosted, project-scoped Retrieval-Augmented Generation assistant for personal engineering documentation.",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "setup": "node scripts/check-prereqs.mjs",
+    "dev": "concurrently -n server,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "npm --workspace server run dev",
+    "dev:web": "npm --workspace web run dev",
+    "build": "npm --workspace web run build",
+    "start": "npm --workspace server run start",
+    "db:migrate": "npm --workspace server run db:migrate",
+    "db:status": "npm --workspace server run db:status",
+    "test": "npm --workspace server run test",
+    "test:watch": "npm --workspace server run test:watch",
+    "test:e2e": "playwright test",
+    "eval:rag": "npm --workspace server run eval:rag",
+    "check": "npm --workspace server run check"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.0",
+    "concurrently": "^9.2.1"
+  }
+}

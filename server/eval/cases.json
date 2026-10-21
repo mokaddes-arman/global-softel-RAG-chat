@@ -1,0 +1,54 @@
+{
+  "name": "core retrieval and abstention",
+  "description": "Deterministic retrieval checks. Positive cases assert that the distinctive piece of evidence is retrieved; negative cases assert that an entity absent from the corpus is NOT retrieved, which is what forces the assistant to abstain instead of inventing an answer.",
+  "cases": [
+    {
+      "id": "refresh-token-lifetime",
+      "question": "How long are refresh tokens valid?",
+      "expectAnswerable": true,
+      "anySourceContains": "30 days"
+    },
+    {
+      "id": "rate-limit-status",
+      "question": "What status code is returned when the public API rate limit is exceeded?",
+      "expectAnswerable": true,
+      "anySourceContains": "429"
+    },
+    {
+      "id": "access-token-expiry",
+      "question": "When does an access token expire?",
+      "expectAnswerable": true,
+      "anySourceContains": "15 minutes"
+    },
+    {
+      "id": "payment-retries",
+      "question": "How many times is a failed payment retried before suspension?",
+      "expectAnswerable": true,
+      "anySourceContains": "three times"
+    },
+    {
+      "id": "proration-rule",
+      "question": "How is a mid-cycle plan upgrade billed?",
+      "expectAnswerable": true,
+      "anySourceContains": "prorated"
+    },
+    {
+      "id": "currency-units",
+      "question": "In what units are monetary amounts stored?",
+      "expectAnswerable": true,
+      "anySourceContains": "minor units"
+    },
+    {
+      "id": "absent-webdav",
+      "question": "Does the platform support WebDAV file sharing?",
+      "expectAnswerable": false,
+      "noSourceContains": "WebDAV"
+    },
+    {
+      "id": "absent-ssh-port",
+      "question": "Which SSH port does the production bastion host listen on?",
+      "expectAnswerable": false,
+      "noSourceContains": "SSH"
+    }
+  ]
+}
