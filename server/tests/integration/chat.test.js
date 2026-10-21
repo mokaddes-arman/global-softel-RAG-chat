@@ -118,7 +118,7 @@ describe('chat and grounded answers', () => {
   it('marks the answer as an error when the provider has no key', async () => {
     const created = await h.request(h.getApp())
       .post('/api/providers/llm')
-      .send({ name: 'Groq (no key)', provider: 'groq', model: 'llama-3.1-8b-instant', isDefaultChat: true })
+      .send({ name: 'Groq (no key)', provider: 'groq', model: 'openai/gpt-oss-120b', isDefaultChat: true })
       .expect(422);
     expect(created.body.error.code).toBe('validation_error');
   });

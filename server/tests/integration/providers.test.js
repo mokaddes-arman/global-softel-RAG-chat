@@ -34,7 +34,7 @@ describe('provider configuration API', () => {
     const rawKey = 'sk-live-supersecret-value-0123456789abcdef';
     const res = await h.request(h.getApp())
       .post('/api/providers/llm')
-      .send({ name: 'Prod OpenRouter', provider: 'openrouter', model: 'deepseek/deepseek-chat-v3-0324:free', apiKey: rawKey, isDefaultChat: true })
+      .send({ name: 'Prod OpenRouter', provider: 'openrouter', model: 'deepseek/deepseek-chat-v3-0324', apiKey: rawKey, isDefaultChat: true })
       .expect(201);
 
     const config = res.body.config;
@@ -60,7 +60,7 @@ describe('provider configuration API', () => {
   it('refuses to create a provider that needs a key without one', async () => {
     const res = await h.request(h.getApp())
       .post('/api/providers/llm')
-      .send({ name: 'No key', provider: 'groq', model: 'llama-3.1-8b-instant' })
+      .send({ name: 'No key', provider: 'groq', model: 'openai/gpt-oss-120b' })
       .expect(422);
     expect(res.body.error.code).toBe('validation_error');
   });
@@ -105,7 +105,7 @@ describe('provider configuration API', () => {
   it('updates a key (replace and clear) without ever echoing it', async () => {
     const created = await h.request(h.getApp())
       .post('/api/providers/llm')
-      .send({ name: 'Rotate', provider: 'openrouter', model: 'deepseek/deepseek-chat-v3-0324:free', apiKey: 'sk-first-key-1111111111' })
+      .send({ name: 'Rotate', provider: 'openrouter', model: 'deepseek/deepseek-chat-v3-0324', apiKey: 'sk-first-key-1111111111' })
       .expect(201);
     const id = created.body.config.id;
 
@@ -141,7 +141,7 @@ describe('provider configuration API', () => {
 
     const blocked = await h.request(h.getApp())
       .post('/api/providers/llm/test')
-      .send({ provider: 'openrouter', model: 'deepseek/deepseek-chat-v3-0324:free' })
+      .send({ provider: 'openrouter', model: 'deepseek/deepseek-chat-v3-0324' })
       .expect(422);
     expect(blocked.body.error.message).toMatch(/requires an api key/i);
   });

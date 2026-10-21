@@ -159,10 +159,11 @@ providers.openrouter = createOpenAICompatibleProvider({
   id: 'openrouter',
   label: 'OpenRouter',
   defaultBaseUrl: 'https://openrouter.ai/api/v1',
-  defaultModel: 'deepseek/deepseek-chat-v3-0324:free',
+  defaultModel: 'nvidia/nemotron-3-ultra-550b-a55b:free',
   knownModels: [
-    { id: 'deepseek/deepseek-chat-v3-0324:free' },
     { id: 'nvidia/nemotron-3-ultra-550b-a55b:free' },
+    { id: 'deepseek/deepseek-chat-v3-0324' },
+    { id: 'nvidia/nemotron-3.5-super-vl:free' },
   ],
 });
 
@@ -170,10 +171,10 @@ providers.groq = createOpenAICompatibleProvider({
   id: 'groq',
   label: 'Groq',
   defaultBaseUrl: 'https://api.groq.com/openai/v1',
-  defaultModel: 'llama-3.1-8b-instant',
+  defaultModel: 'openai/gpt-oss-120b',
   knownModels: [
-    { id: 'llama-3.1-8b-instant' },
-    { id: 'qwen/qwen3-32b' },
+    { id: 'openai/gpt-oss-120b' },
+    { id: 'qwen/qwen3.8-27b' },
   ],
 });
 
@@ -243,6 +244,20 @@ function isSupportedLlmProvider(id) {
   return Boolean(providers[id]);
 }
 
+/**
+ * The models a provider is known to serve, in the order they should be tried.
+ *
+ * Provider catalogues change: a model that worked yesterday can be retired
+ * overnight (OpenRouter dropped `deepseek/deepseek-chat-v3-0324:free`, Groq
+ * dropped `llama-3.1-8b-instant`). The caller uses this list to retry a
+ * request with the next known model instead of failing the whole question.
+ */
+function listProviderModelCandidates(providerId) {
+  const impl = providers[providerId];
+  if (!impl) return [];
+  return (impl.knownModels || []).map((m) => (typeof m === 'string' ? m : m.id)).filter(Boolean);
+}
+
 /** Run a chat completion through the selected provider. */
 async function runChat({ provider, ...options }) {
   const impl = getLlmProvider(provider);
@@ -261,6 +276,7 @@ module.exports = {
   getLlmProvider,
   listLlmProviders,
   listLlmProviderIds,
+  listProviderModelCandidates,
   isSupportedLlmProvider,
   runChat,
   testProviderConnection,

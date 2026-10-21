@@ -1,5 +1,10 @@
 /* globals describe, it, expect */
-const { listLlmProviders, listLlmProviderIds, SUPPORTED_LLM_PROVIDERS } = require('../../src/llm');
+const {
+  listLlmProviders,
+  listLlmProviderIds,
+  listProviderModelCandidates,
+  SUPPORTED_LLM_PROVIDERS,
+} = require('../../src/llm');
 
 describe('LLM provider registry', () => {
   it('registers exactly the two supported hosted providers', () => {
@@ -26,5 +31,22 @@ describe('LLM provider registry', () => {
     const byId = Object.fromEntries(listLlmProviders().map((p) => [p.id, p]));
     expect(byId.openrouter.requiresKey).toBe(true);
     expect(byId.groq.requiresKey).toBe(true);
+  });
+
+  it('lists known models for every hosted provider so a retired model is not fatal', () => {
+    for (const id of SUPPORTED_LLM_PROVIDERS) {
+      const candidates = listProviderModelCandidates(id);
+      expect(candidates.length, `${id} must have at least one known model`).toBeGreaterThan(0);
+      expect(candidates.every((m) => typeof m === 'string' && m.length > 0)).toBe(true);
+      // The default model must be one of the candidates, otherwise the very
+      // first request would fail with "model not found".
+      const provider = listLlmProviders().find((p) => p.id === id);
+      expect(candidates).toContain(provider.defaultModel);
+    }
+  });
+
+  it('returns no candidates for an unknown provider', () => {
+    expect(listProviderModelCandidates('openai')).toEqual([]);
+    expect(listProviderModelCandidates('nope')).toEqual([]);
   });
 });

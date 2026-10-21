@@ -6,7 +6,7 @@ const { logger } = require('../lib/logger');
 const { AppError, Codes } = require('../lib/errors');
 const { truncate } = require('../lib/ids');
 const { retrieve } = require('../retrieval/hybrid');
-const { runChat } = require('../llm');
+const { runChat, listProviderModelCandidates } = require('../llm');
 const { SYSTEM_PROMPT, buildAnswerPrompt, describeLocation } = require('../llm/prompt');
 const { resolveChatProvider } = require('./providers');
 const { resolveActiveEmbedding } = require('./embeddings');
@@ -149,7 +149,7 @@ function withDeadline(promise, ms, label, { onTimeout, code = Codes.NETWORK_TIME
 function groqFallback() {
   const apiKey = config.groq?.apiKey;
   if (!apiKey) return null;
-  const model = config.groq.model || config.groq.models?.[0] || 'llama-3.1-8b-instant';
+  const model = config.groq.model || config.groq.models?.[0] || 'openai/gpt-oss-120b';
   return {
     configId: null,
     provider: 'groq',
@@ -160,6 +160,58 @@ function groqFallback() {
     source: 'environment',
     name: `groq:${model}`,
   };
+}
+
+/**
+ * The ordered list of attempts for one question.
+ *
+ * 1. The configured provider + model.
+ * 2. The provider's other known models - a retired model must not fail the
+ *    whole question.
+ * 3. The fallback provider (OpenRouter -> Groq) and its known models.
+ *
+ * The list is built once per question so a failure cannot turn into an
+ * unbounded retry loop.
+ */
+function buildAttempts(providerConfig) {
+  const attempts = [{ ...providerConfig }];
+  const addModels = (base) => {
+    for (const model of listProviderModelCandidates(base.provider)) {
+      if (attempts.some((a) => a.provider === base.provider && a.model === model)) continue;
+      attempts.push({ ...base, model, name: `${base.provider}:${model}` });
+    }
+  };
+  addModels(providerConfig);
+
+  if (providerConfig.provider === 'openrouter') {
+    const fallback = groqFallback();
+    if (fallback) {
+      attempts.push(fallback);
+      addModels(fallback);
+    }
+  }
+  return attempts;
+}
+
+/**
+ * Pick the next attempt after a failure.
+ *
+ * - A retired/unknown model retries with the next known model of the *same*
+ *   provider first (a different model on the same provider is usually enough).
+ * - Any other failure (bad key, rate limit, provider error) jumps straight to
+ *   the fallback provider.
+ * - A timeout is never retried: the question is already out of budget.
+ */
+function nextAttempt(attempts, failedIndex, err) {
+  if (err.code === Codes.NETWORK_TIMEOUT) return null;
+  const failed = attempts[failedIndex];
+  if (err.code === Codes.MODEL_NOT_FOUND) {
+    const sameProvider = attempts.findIndex((a, i) => i > failedIndex && a.provider === failed.provider);
+    if (sameProvider !== -1) return { index: sameProvider, attempt: attempts[sameProvider] };
+  }
+  const otherProvider = attempts.findIndex((a, i) => i > failedIndex && a.provider !== failed.provider);
+  if (otherProvider === -1) return null;
+  return { index: otherProvider, attempt: attempts[otherProvider] };
 }
 
 /**
@@ -443,12 +495,12 @@ async function ask({ conversationId, question, emit = () => {}, signal, options 
     let usage = null;
     const wantsStream = options.stream !== false;
 
-    const chatArgs = () => ({
-      provider: providerConfig.provider,
-      model: providerConfig.model,
-      baseUrl: providerConfig.baseUrl,
-      apiKey: providerConfig.apiKey,
-      extra: providerConfig.extra,
+    const chatArgs = (attempt) => ({
+      provider: attempt.provider,
+      model: attempt.model,
+      baseUrl: attempt.baseUrl,
+      apiKey: attempt.apiKey,
+      extra: attempt.extra,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: answerPrompt },
@@ -463,31 +515,39 @@ async function ask({ conversationId, question, emit = () => {}, signal, options 
         : undefined,
     });
 
+    // Try the configured provider first, then its other known models, then the
+    // fallback provider. A retired model or a rate limit must not fail the
+    // question outright.
+    const attempts = buildAttempts(providerConfig);
+    let attemptIndex = 0;
     let result;
-    try {
-      result = await withDeadline(
-        runChat(chatArgs()),
-        Math.max(1000, deadline - Date.now()),
-        'Generating the answer',
-        { onTimeout: onDeadline },
-      );
-    } catch (err) {
-      // If OpenRouter failed (rate limit / quota), try Groq once.
-      const fallback = providerConfig.provider === 'openrouter' ? groqFallback() : null;
-      if (!fallback) throw err;
-      logger.warn({ err: err.message }, 'OpenRouter failed, falling back to Groq');
-      providerConfig = fallback;
-      await query('UPDATE messages SET provider = $2, model = $3 WHERE id = $1', [
-        assistantMessageId,
-        providerConfig.provider,
-        providerConfig.model,
-      ]);
-      result = await withDeadline(
-        runChat(chatArgs()),
-        Math.max(1000, deadline - Date.now()),
-        'Generating the answer',
-        { onTimeout: onDeadline },
-      );
+    for (;;) {
+      const attempt = attempts[attemptIndex];
+      try {
+        result = await withDeadline(
+          runChat(chatArgs(attempt)),
+          Math.max(1000, deadline - Date.now()),
+          'Generating the answer',
+          { onTimeout: onDeadline },
+        );
+        if (attempt.provider !== providerConfig.provider || attempt.model !== providerConfig.model) {
+          providerConfig = attempt;
+          await query('UPDATE messages SET provider = $2, model = $3 WHERE id = $1', [
+            assistantMessageId,
+            providerConfig.provider,
+            providerConfig.model,
+          ]);
+        }
+        break;
+      } catch (err) {
+        const next = nextAttempt(attempts, attemptIndex, err);
+        if (!next) throw err;
+        logger.warn(
+          { err: err.message, from: attempt.name, to: next.attempt.name, code: err.code },
+          'provider attempt failed, trying the next one',
+        );
+        attemptIndex = next.index;
+      }
     }
 
     if (!wantsStream) text = result.text;
@@ -499,11 +559,13 @@ async function ask({ conversationId, question, emit = () => {}, signal, options 
     const latencyMs = Date.now() - started;
     const finalText = text.trim() || '(The provider returned an empty answer.)';
 
+    let assistantMessage = null;
     await withTransaction(async (tx) => {
-      await tx.query(
+      const { rows } = await tx.query(
         `UPDATE messages SET content = $2, status = 'complete', provider = $3, model = $4, token_usage = $5::jsonb,
                 latency_ms = $6, retrieval_meta = $7::jsonb, error_code = NULL, error_message = NULL
-         WHERE id = $1`,
+         WHERE id = $1
+         RETURNING *`,
         [
           assistantMessageId,
           finalText,
@@ -514,13 +576,23 @@ async function ask({ conversationId, question, emit = () => {}, signal, options 
           JSON.stringify({ stats: retrievalStats, sourceCount: sources.length, provider: providerConfig.provider, model: actualModel }),
         ],
       );
+      assistantMessage = rows[0] || null;
       await persistSources(tx, assistantMessageId, conversation.project_id, sources);
     });
 
     await touchConversation(conversationId, userMessage, { provider: providerConfig.provider, model: actualModel });
     emit({ type: 'done', messageId: assistantMessageId, latencyMs, usage, model: actualModel });
 
-    return { ok: true, messageId: assistantMessageId, content: finalText, sources, stats: retrievalStats, usage, model: actualModel };
+    return {
+      ok: true,
+      message: assistantMessage,
+      messageId: assistantMessageId,
+      content: finalText,
+      sources,
+      stats: retrievalStats,
+      usage,
+      model: actualModel,
+    };
   } catch (err) {
     const latencyMs = Date.now() - startedAt;
     const aborted = Boolean(signal?.aborted) || err.status === 499;

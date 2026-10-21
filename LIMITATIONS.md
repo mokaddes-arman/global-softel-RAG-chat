@@ -17,7 +17,7 @@
 - Backend: Node/Express (CommonJS), PostgreSQL + pgvector **or** embedded PGlite.
 - Frontend: React + Vite + Tailwind.
 - LLM providers that may answer questions: **OpenRouter** and **Groq** only.
-- Verified green: 107 backend tests · 14 e2e tests · 8/8 RAG eval (all offline).
+- Verified green: 109 backend tests · 14 e2e tests · 8/8 RAG eval (all offline).
 
 ---
 
@@ -95,34 +95,39 @@
   fails with a rate limit / quota error, the same question is retried once through **Groq**
   and the provider that actually answered is recorded on the message. There is no chain
   beyond these two providers. *Owner:* `server/src/services/conversations.js`.
-- [ ] **D3 — Single retrieval + single generation (Medium).** Not agentic: no tool use, no
+- [x] **D3 — Retired models are rotated (resolved).** A request that fails with
+  `model_not_found` is retried with the next known model of the same provider before the
+  provider fallback is used (OpenRouter dropped `deepseek/deepseek-chat-v3-0324:free`,
+  Groq dropped `llama-3.1-8b-instant` — both would otherwise have broken every question).
+  *Owner:* `server/src/llm/index.js`, `services/conversations.js`.
+- [ ] **D4 — Single retrieval + single generation (Medium).** Not agentic: no tool use, no
   multi-step planning, no self-critique loop. *Work on it:* `ask()` in
   `server/src/services/conversations.js`.
-- [ ] **D4 — Excerpts are truncated (Medium).** Each excerpt is capped (~1800 chars) and the
+- [ ] **D5 — Excerpts are truncated (Medium).** Each excerpt is capped (~1800 chars) and the
   total context is capped (`RETRIEVAL_MAX_CONTEXT_CHARS=16000`); very long passages are only
   partially represented. *Work on it:* config + prompt builder.
-- [ ] **D5 — No conversation summarization (Medium).** Long chats send limited history; older
+- [ ] **D6 — No conversation summarization (Medium).** Long chats send limited history; older
   turns may drop out of the model's context. *Work on it:* `buildConversationContext`.
-- [ ] **D6 — Failed generation is not auto-retried (Low).** Ingestion jobs retry, but a failed
+- [ ] **D7 — Failed generation is not auto-retried (Low).** Ingestion jobs retry, but a failed
   answer simply returns an error. *Work on it:* add a retry path in `ask()`.
-- [ ] **D7 — Streaming aborts on client disconnect (Low).** Closing the tab stops generation;
+- [ ] **D8 — Streaming aborts on client disconnect (Low).** Closing the tab stops generation;
   the assistant message is then stored as `aborted` with the partial text. *Work on it:* SSE
   handler in `server/src/routes/conversations.js`.
-- [ ] **D8 — `DISABLE_HOSTED_AI=true` blocks all generation (By design).** Privacy mode:
+- [ ] **D9 — `DISABLE_HOSTED_AI=true` blocks all generation (By design).** Privacy mode:
   retrieval and citations still work, answers do not. *Work on it:* intended — keep.
-- [ ] **D9 — Conversation titles are heuristic (Low).** Derived from the first ~8 words; not
+- [ ] **D10 — Conversation titles are heuristic (Low).** Derived from the first ~8 words; not
   model-generated, though a rename overrides it. *Work on it:* `deriveTitle`.
-- [ ] **D10 — Deadlines are fixed, not adaptive (Medium).** A slow provider is cut off at
+- [ ] **D11 — Deadlines are fixed, not adaptive (Medium).** A slow provider is cut off at
   `ASK_TIMEOUT_MS` (180 s) / `LLM_REQUEST_TIMEOUT_MS` (120 s) rather than retried with a
   longer budget. *Work on it:* raise the values in `.env`.
-- [ ] **D11 — The mock provider is test-only (By design).** The offline `mock` adapter is
+- [ ] **D12 — The mock provider is test-only (By design).** The offline `mock` adapter is
   registered only when `NODE_ENV=test` (or under Vitest), so it can never answer a real
   question. The e2e suite therefore validates wiring and citations, not prose quality.
   *Work on it:* intended — keep.
-- [x] **D12 — Usage counts only completed answers (By design).** `/model-usage` aggregates
+- [x] **D13 — Usage counts only completed answers (By design).** `/model-usage` aggregates
   `role='assistant'`, `status='complete'` messages with a recorded model; failed/aborted
   generations are excluded. *Work on it:* intended — keep.
-- [ ] **D13 — No provider quota reporting (Low).** OpenRouter and Groq do not expose a
+- [ ] **D14 — No provider quota reporting (Low).** OpenRouter and Groq do not expose a
   remaining-allowance figure through this app, so `/model-usage` reports **usage**, not
   quota. *Work on it:* none — not exposed by the API.
 

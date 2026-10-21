@@ -152,18 +152,23 @@ evidence exists, and every claim is still tied to a real, cited source.
 
 | Provider | Endpoint | Default model |
 | --- | --- | --- |
-| **OpenRouter** (primary) | `https://openrouter.ai/api/v1` | `deepseek/deepseek-chat-v3-0324:free` |
-| **Groq** (fallback) | `https://api.groq.com/openai/v1` | `llama-3.1-8b-instant` |
+| **OpenRouter** (primary) | `https://openrouter.ai/api/v1` | `nvidia/nemotron-3-ultra-550b-a55b:free` |
+| **Groq** (fallback) | `https://api.groq.com/openai/v1` | `openai/gpt-oss-120b` |
 
 Both speak the OpenAI chat-completions protocol, so they share one adapter. Configure them in
 **Settings → AI Providers** (the key is encrypted at rest), or for a UI-free setup with the
 optional `OPENROUTER_API_KEY` / `GROQ_API_KEY` variables in `.env` (see `.env.example`).
 Precedence is: the provider configured in Settings first, then the environment values.
 
-**Automatic fallback.** If OpenRouter has no key, or if the request fails with a rate
-limit / quota error, the app retries the same question once through **Groq** and records
-which provider actually answered (`messages.provider`, `messages.model`). This is the only
-cross-provider fallback in the app — there is no chain beyond these two.
+**Automatic fallback and model rotation.** If OpenRouter has no key, or the request fails
+with a rate limit / quota error, the app retries the same question once through **Groq**
+and records which provider actually answered (`messages.provider`, `messages.model`).
+
+Provider catalogues change — a model that worked yesterday can be retired overnight
+(OpenRouter dropped `deepseek/deepseek-chat-v3-0324:free`, Groq dropped
+`llama-3.1-8b-instant`). Each provider therefore keeps an ordered list of known models, and
+a request that fails with `model_not_found` is retried with the next known model of the
+same provider before the provider fallback is used. A timeout is never retried.
 
 A third, **offline `mock`** adapter exists so the automated test suite and the end-to-end
 run need no API key and no network. It is registered **only** when the process starts with
@@ -193,7 +198,7 @@ The most important ones:
 | `EMBEDDING_DIM` | Stored vector dimension. | `384` |
 | `DISABLE_HOSTED_AI` | Privacy mode: refuse all hosted LLM calls. | `false` |
 | `DEFAULT_LLM_PROVIDER` | Provider that answers questions — `openrouter` \| `groq`. | `openrouter` |
-| `DEFAULT_LLM_MODEL` | Default model id for the chosen provider. | `deepseek/deepseek-chat-v3-0324:free` |
+| `DEFAULT_LLM_MODEL` | Default model id for the chosen provider. | `nvidia/nemotron-3-ultra-550b-a55b:free` |
 | `OPENROUTER_API_KEY` | *(optional)* env fallback for the OpenRouter key. | *(empty)* |
 | `GROQ_API_KEY` | *(optional)* env fallback for the Groq key. | *(empty)* |
 | `RETRIEVAL_TOP_K` | Number of chunks returned. | `8` |
@@ -260,7 +265,7 @@ Current status on this machine (all commands run from the repo root):
 
 | Suite | Command | Result |
 | --- | --- | --- |
-| Backend unit + integration | `npm test` | **107 passed** (12 files) |
+| Backend unit + integration | `npm test` | **109 passed** (12 files) |
 | End-to-end (real browser + real backend) | `npm run test:e2e` | **14 passed** |
 | Retrieval evaluation | `npm run eval:rag` | **8/8 retrieval (100%) + e2e smoke pass** |
 | Backend readiness | `npm run check` | **all checks passed** |
@@ -380,7 +385,10 @@ These are real and worth knowing before you rely on the app:
 9. **Only two providers can answer: OpenRouter and Groq.** There is no wider fallback chain.
    If OpenRouter fails *and* Groq is not configured (or also fails), the answer fails with an
    error message instead of a spinner — the assistant bubble always shows the outcome.
-10. **Deadlines are fixed values, not adaptive.** A slow provider is cut off at
+10. **Known model lists can go stale.** The app retries a retired model with the next known
+    model of the same provider, but a provider can retire every model the app knows about.
+    Use **Settings → AI Providers** to pick a model that the provider currently lists.
+11. **Deadlines are fixed values, not adaptive.** A slow provider is cut off at
     `ASK_TIMEOUT_MS` / `LLM_REQUEST_TIMEOUT_MS` rather than being retried with a longer
     budget. Raise the values in `.env` if your provider is legitimately slow.
 

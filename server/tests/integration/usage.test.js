@@ -33,13 +33,13 @@ describe('model usage API', () => {
   async function seed() {
     const base = { conversationId: conversation.id, projectId: project.id };
     // Groq usage
-    await insertMessage({ ...base, provider: 'groq', model: 'llama-3.1-8b-instant', tokenUsage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 }, hoursAgo: 30 });
-    await insertMessage({ ...base, provider: 'groq', model: 'llama-3.1-8b-instant', tokenUsage: { prompt_tokens: 200, completion_tokens: 80, total_tokens: 280 }, hoursAgo: 1, });
+    await insertMessage({ ...base, provider: 'groq', model: 'openai/gpt-oss-120b', tokenUsage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 }, hoursAgo: 30 });
+    await insertMessage({ ...base, provider: 'groq', model: 'openai/gpt-oss-120b', tokenUsage: { prompt_tokens: 200, completion_tokens: 80, total_tokens: 280 }, hoursAgo: 1, });
     // OpenRouter usage {prompt_tokens, completion_tokens}
-    await insertMessage({ ...base, provider: 'openrouter', model: 'deepseek/deepseek-chat-v3-0324:free', tokenUsage: { prompt_tokens: 10, completion_tokens: 5 }, hoursAgo: 2 });
+    await insertMessage({ ...base, provider: 'openrouter', model: 'deepseek/deepseek-chat-v3-0324', tokenUsage: { prompt_tokens: 10, completion_tokens: 5 }, hoursAgo: 2 });
     // Must NOT be counted:
     await insertMessage({ ...base, role: 'user', model: null, tokenUsage: null, hoursAgo: 2 });
-    await insertMessage({ ...base, status: 'error', provider: 'openrouter', model: 'deepseek/deepseek-chat-v3-0324:free', tokenUsage: { prompt_tokens: 999, completion_tokens: 999 }, hoursAgo: 2 });
+    await insertMessage({ ...base, status: 'error', provider: 'openrouter', model: 'deepseek/deepseek-chat-v3-0324', tokenUsage: { prompt_tokens: 999, completion_tokens: 999 }, hoursAgo: 2 });
   }
 
   it('aggregates tokens per model across provider-specific usage shapes', async () => {
@@ -55,7 +55,7 @@ describe('model usage API', () => {
     expect(res.body.totals.totalTokens).toBe(445);
     expect(res.body.totals.modelCount).toBe(2);
 
-    const llama = res.body.models.find((m) => m.model === 'llama-3.1-8b-instant');
+    const llama = res.body.models.find((m) => m.model === 'openai/gpt-oss-120b');
     expect(llama.requests).toBe(2);
     expect(llama.inputTokens).toBe(300);
     expect(llama.outputTokens).toBe(130);
@@ -91,11 +91,11 @@ describe('model usage API', () => {
     await seed();
     const res = await h.request(h.getApp())
       .get('/api/model-usage')
-      .query({ model: 'llama-3.1-8b-instant' })
+      .query({ model: 'openai/gpt-oss-120b' })
       .expect(200);
     expect(res.body.totals.requests).toBe(2);
     expect(res.body.models).toHaveLength(1);
-    expect(res.body.models[0].model).toBe('llama-3.1-8b-instant');
+    expect(res.body.models[0].model).toBe('openai/gpt-oss-120b');
   });
 
   it('returns an empty report for a period with no usage', async () => {

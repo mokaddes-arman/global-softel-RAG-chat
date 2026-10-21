@@ -106,7 +106,7 @@ const config = {
 
   // Only OpenRouter and Groq may answer questions.
   defaultLlmProvider: str('DEFAULT_LLM_PROVIDER', 'openrouter'),
-  defaultLlmModel: str('DEFAULT_LLM_MODEL', 'deepseek/deepseek-chat-v3-0324:free'),
+  defaultLlmModel: str('DEFAULT_LLM_MODEL', 'nvidia/nemotron-3-ultra-550b-a55b:free'),
   disableHostedAi: bool('DISABLE_HOSTED_AI', false),
 
   // Optional environment defaults for providers

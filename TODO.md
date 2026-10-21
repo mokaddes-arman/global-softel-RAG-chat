@@ -118,10 +118,16 @@ Backend
 - [x] `llm/index.js` — `SUPPORTED_LLM_PROVIDERS`, `listLlmProviderIds()`, `isSupportedLlmProvider()`;
   `mock` registered only when `config.isTest`
 - [x] `config/env.js` + `.env`/`.env.example` — `DEFAULT_LLM_PROVIDER=openrouter`,
-  `DEFAULT_LLM_MODEL=deepseek/deepseek-chat-v3-0324:free`; `OPENCODE_*` variables removed
+  `DEFAULT_LLM_MODEL=nvidia/nemotron-3-ultra-550b-a55b:free`; `OPENCODE_*` variables removed
 - [x] `services/providers.js` — env fallback via `isSupportedLlmProvider()`
 - [x] `services/conversations.js` — `providerRequiresKey()` only for openrouter/groq;
   OpenRouter → Groq fallback on rate limit / quota / missing key
+- [x] `llm/index.js` + `services/conversations.js` — ordered per-provider model candidates:
+  a `model_not_found` retries the next known model of the **same** provider before the
+  provider fallback (OpenRouter dropped `deepseek/deepseek-chat-v3-0324:free`, Groq dropped
+  `llama-3.1-8b-instant`); timeouts are never retried
+- [x] Defaults updated to models that actually exist:
+  `nvidia/nemotron-3-ultra-550b-a55b:free` (OpenRouter) and `openai/gpt-oss-120b` (Groq)
 - [x] `routes/usage.js` + `services/usage.js` — `GET /model-usage/catalog` is now derived from
   the provider configs stored in the DB (not the ambient environment), so it is deterministic
 - [x] `server/tests/unit/opencode.test.js` deleted; `server/tests/unit/llm-providers.test.js` added
@@ -132,9 +138,9 @@ Frontend
 
 Tests & docs
 - [x] `server/tests/integration/{providers,chat,security,usage}.test.js` — models updated to
-  `llama-3.1-8b-instant` / `deepseek/deepseek-chat-v3-0324:free`
-- [x] All suites green — backend (`npm test`) **107 passed**, e2e (`npm run test:e2e`) **14 passed**
-- [x] Docs — README (provider section, env table, API), `LIMITATIONS.md` (D2, D10–D13)
+  `openai/gpt-oss-120b` / `deepseek/deepseek-chat-v3-0324` (real ids, used as fixtures only)
+- [x] All suites green — backend (`npm test`) **109 passed**, e2e (`npm run test:e2e`) **14 passed**
+- [x] Docs — README (provider section, env table, API), `LIMITATIONS.md` (D2–D3, D11–D14)
 
 Notes
 - Grounding/abstention untouched: the provider is only called when evidence exists.
@@ -183,7 +189,10 @@ Config
 Verified
 - [x] Live check on the real OpenRouter key — upload → index (97 chunks) → ask → 8 cited
   sources; the previously stuck job `5da6667d` and document `68fe229f-…` are indexed again
-- [x] All suites green — backend (`npm test`) **107 passed** (12 files), e2e
+- [x] Live fallback check — with an invalid OpenRouter key the answer came back from Groq
+  (`openai/gpt-oss-120b`); with a retired OpenRouter model the request was retried with the
+  next known model of the same provider and answered there
+- [x] All suites green — backend (`npm test`) **109 passed** (12 files), e2e
   (`npm run test:e2e`) **14 passed**
 - [x] Docs — README (deadline table, limitations), `LIMITATIONS.md` (new section I)
 

@@ -250,7 +250,7 @@ async function resolveChatProvider({ configId } = {}) {
     let apiKey = null;
 
     if (provider === 'groq') {
-      model = modelExplicit ? config.defaultLlmModel : (config.groq.model || config.groq.models[0] || 'llama-3.1-8b-instant');
+      model = modelExplicit ? config.defaultLlmModel : (config.groq.model || config.groq.models[0] || 'openai/gpt-oss-120b');
       baseUrl = config.groq.baseUrl || null;
       apiKey = config.groq.apiKey || null;
     } else if (provider === 'mock') {
@@ -258,7 +258,7 @@ async function resolveChatProvider({ configId } = {}) {
     } else {
       model = modelExplicit
         ? config.defaultLlmModel
-        : (config.openrouter.model || config.openrouter.models[0] || 'deepseek/deepseek-chat-v3-0324:free');
+        : (config.openrouter.model || config.openrouter.models[0] || 'nvidia/nemotron-3-ultra-550b-a55b:free');
       baseUrl = config.openrouter.baseUrl || null;
       apiKey = config.openrouter.apiKey || null;
     }

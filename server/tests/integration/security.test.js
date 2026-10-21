@@ -144,7 +144,7 @@ describe('security hardening', () => {
   it('does not expose the master key or API keys through the settings endpoints', async () => {
     await h.request(h.getApp())
       .post('/api/providers/llm')
-      .send({ name: 'Keyed', provider: 'openrouter', model: 'deepseek/deepseek-chat-v3-0324:free', apiKey: 'sk-should-never-leak-9999', isDefaultChat: true })
+      .send({ name: 'Keyed', provider: 'openrouter', model: 'deepseek/deepseek-chat-v3-0324', apiKey: 'sk-should-never-leak-9999', isDefaultChat: true })
       .expect(201);
     for (const path of ['/api/providers/llm', '/api/providers/embedding', '/api/settings', '/api/system/status']) {
       const res = await h.request(h.getApp()).get(path).expect(200);
