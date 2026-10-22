@@ -107,6 +107,44 @@ export const api = {
   getChunk: (id) => request(`/chunks/${id}`),
   fileUrl: (id, { versionId, download } = {}) =>
     `${BASE}/documents/${id}/file${qs({ versionId, download: download ? 'true' : undefined })}`,
+  /** The shared `.md` representation of a document (JSON preview). */
+  documentMarkdown: (id, { versionId } = {}) => request(`/documents/${id}/markdown${qs({ versionId })}`),
+  /** Direct link to the shared `.md` file (used by the download icon). */
+  documentMarkdownUrl: (id, { versionId } = {}) =>
+    `${BASE}/documents/${id}/markdown/download${qs({ versionId })}`,
+
+  // --- knowledge base ---------------------------------------------------------
+  // Web links: a URL that is crawled into the knowledge base as a document.
+  listWebLinks: (projectId, params) => request(`/projects/${projectId}/links${qs(params)}`),
+  createWebLinks: (projectId, body) => request(`/projects/${projectId}/links`, { method: 'POST', body }),
+  getWebLink: (id) => request(`/links/${id}`),
+  updateWebLink: (id, body) => request(`/links/${id}`, { method: 'PATCH', body }),
+  deleteWebLink: (id) => request(`/links/${id}`, { method: 'DELETE' }),
+  /** Queue a fresh crawl of a link (re-crawl). */
+  crawlWebLink: (id) => request(`/links/${id}/crawl`, { method: 'POST' }),
+
+  // Link lists: a named list of URLs that can be imported into the knowledge base.
+  listLinkLists: (projectId) => request(`/projects/${projectId}/link-lists`),
+  createLinkList: (projectId, body) => request(`/projects/${projectId}/link-lists`, { method: 'POST', body }),
+  getLinkList: (id) => request(`/link-lists/${id}`),
+  addLinkListItems: (id, urls) => request(`/link-lists/${id}/items`, { method: 'POST', body: { urls } }),
+  deleteLinkList: (id) => request(`/link-lists/${id}`, { method: 'DELETE' }),
+  /** Turn every URL of a list into a knowledge-base link and crawl it. */
+  importLinkList: (id, collectionId) =>
+    request(`/link-lists/${id}/import`, { method: 'POST', body: { collectionId: collectionId || null } }),
+
+  // Collections: named groups of documents and web links.
+  listCollections: (projectId) => request(`/projects/${projectId}/collections`),
+  createCollection: (projectId, body) => request(`/projects/${projectId}/collections`, { method: 'POST', body }),
+  getCollection: (id) => request(`/collections/${id}`),
+  updateCollection: (id, body) => request(`/collections/${id}`, { method: 'PATCH', body }),
+  deleteCollection: (id) => request(`/collections/${id}`, { method: 'DELETE' }),
+  addCollectionItems: (id, body) => request(`/collections/${id}/items`, { method: 'POST', body }),
+  removeCollectionItem: (id, itemId) => request(`/collections/${id}/items/${itemId}`, { method: 'DELETE' }),
+
+  // Crawl jobs: the queue that fetches and indexes the linked pages.
+  listCrawlJobs: (projectId, params) => request(`/projects/${projectId}/crawl-jobs${qs(params)}`),
+  retryCrawlJob: (id) => request(`/crawl-jobs/${id}/retry`, { method: 'POST' }),
 
   // --- conversations ----------------------------------------------------------
   createConversation: (projectId, body = {}) =>

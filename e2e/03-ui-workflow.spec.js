@@ -89,12 +89,18 @@ test('upload a document, ask a question and read the cited answer', async ({ pag
   await expect(page.getByRole('heading', { name: 'New conversation' })).toBeVisible();
 
   // --- 2. upload a document -------------------------------------------------
+  // The Documents page has two sections: "Upload documents" (files + the rest
+  // of the knowledge base) and "View documents" (the document table).
   await page.getByRole('button', { name: 'Documents' }).click();
+  await page.getByRole('tab', { name: 'View documents' }).click();
   await expect(page.getByText('No documents yet')).toBeVisible();
 
+  await page.getByRole('tab', { name: 'Upload documents' }).click();
   await page.locator('input[type="file"]').first().setInputFiles(writeSampleDocument());
 
   await expect(page.getByText(/queued for indexing/)).toBeVisible();
+
+  await page.getByRole('tab', { name: 'View documents' }).click();
   await expect(page.locator('table').getByText('indexed', { exact: true })).toBeVisible({
     timeout: 120_000,
   });

@@ -101,6 +101,9 @@ Express API (CommonJS) ── Zod validation, narrow CORS, security headers
    ├── Ingestion worker (DB-backed job queue)
    │     parsers → structure-aware chunker → embeddings → document_chunks
    │
+   ├── Crawl worker (DB-backed job queue)
+   │     SSRF-safe fetch → HTML→Markdown → document version → ingestion
+   │
    ├── Retrieval (hybrid)
    │     pgvector cosine search  +  PostgreSQL full-text search
    │     → Reciprocal Rank Fusion → optional rerank → relative-score cutoff
@@ -127,6 +130,53 @@ Database: PostgreSQL + pgvector  (or embedded PGlite + pgvector)
   to the grounded prompt and stay **subordinate** to the grounding/citation/untrusted-content
   rules, so they can never make the assistant invent facts or leak secrets. Editable in
   *Dashboard → Edit* (with a starter persona template and an 8000-character limit).
+- **Knowledge base:** besides files, a project can hold **web links** (pages that are crawled
+  into documents), **link lists** (a named set of URLs to import in one go) and
+  **collections** (named groups of documents and links). See below.
+
+### The Documents page: "Upload documents" and "View documents"
+
+The **Documents** entry in the sidebar has two sections:
+
+| Section | What it holds |
+| --- | --- |
+| **Upload documents** | Everything that *adds* to the knowledge base: the file drop zone, **web links**, **link lists**, **collections** and the **crawl jobs** that fetch the linked pages. |
+| **View documents** | The document table (search, status filter, archived toggle, versions, re-index) plus the shared **`.md`** file of every document. |
+
+**Web links** are pages on the internet that become part of the knowledge base. Paste one or
+more URLs and they are queued for a crawl: the page is fetched, converted to Markdown and
+stored as a normal document version, so it is retrieved, cited and versioned exactly like an
+uploaded file. **Re-crawl** fetches the page again and adds a **new version** — the previous
+content stays available, which is what keeps old citations verifiable.
+
+**Link lists** are named sets of URLs. A list is inert until it is **imported**, which turns
+every URL into a web link and queues a crawl for each of them (optionally into a collection).
+
+**Collections** group documents and web links under a name. A collection is a view over the
+knowledge base, not a copy: the items keep their own versions and crawl history.
+
+**Crawl jobs** record every fetch. A failed job can be retried, which puts the link back into
+the queue.
+
+**Sharing a document as Markdown.** Every document can be handed out as a single `.md` file —
+the content of the active version with a small YAML front-matter header (title, source,
+project, version, and the source URL for a crawled page). In **View documents** each row has a
+**View .md** button (renders the file in the app, with a *Source* tab for the raw bytes) and a
+**download icon** that saves it as `<title>.md`.
+
+### Crawling is SSRF-safe
+
+A crawler fetches URLs a human typed in, so it is a classic server-side request forgery
+vector. The fetcher therefore:
+
+- accepts only `http`/`https` and refuses URLs with embedded credentials;
+- refuses hostnames that resolve to a **loopback, link-local, private or unique-local**
+  address (so `http://169.254.169.254/` — the cloud metadata endpoint — is never read);
+- **re-validates every redirect hop**;
+- caps the response size and the request duration.
+
+Set `CRAWL_ALLOW_PRIVATE_HOSTS=true` only on a trusted machine (it is enabled automatically
+for the test suite so it can crawl a local fixture server).
 
 ### Per-project persona & HTML deliverables
 
@@ -202,6 +252,22 @@ The most important ones:
 | `OPENROUTER_API_KEY` | *(optional)* env fallback for the OpenRouter key. | *(empty)* |
 | `GROQ_API_KEY` | *(optional)* env fallback for the Groq key. | *(empty)* |
 | `RETRIEVAL_TOP_K` | Number of chunks returned. | `8` |
+| `CRAWL_ALLOW_PRIVATE_HOSTS` | Allow the crawler to fetch loopback/private hosts (SSRF guard). | `false` |
+
+### Web crawling
+
+The knowledge base can ingest **web pages**. The crawler is deliberately conservative:
+
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `CRAWL_TIMEOUT_MS` | Maximum duration of one page fetch. | `30000` |
+| `CRAWL_MAX_BYTES` | Hard cap on one downloaded page. | `5242880` (5 MiB) |
+| `CRAWL_MAX_REDIRECTS` | Redirect hops allowed (each hop is re-validated). | `5` |
+| `CRAWL_MAX_ATTEMPTS` | Attempts per crawl job before it is marked failed. | `3` |
+| `CRAWL_CONCURRENCY` | Pages fetched in parallel by the crawl worker. | `1` |
+| `CRAWL_USER_AGENT` | `User-Agent` sent with every fetch. | `GlobalSoftelRagBot/1.0 …` |
+| `CRAWL_ALLOW_PRIVATE_HOSTS` | Allow loopback/private/link-local targets. **Off by default** (SSRF protection). | `false` |
+| `CRAWL_STALE_JOB_MS` | A "processing" crawl job older than this is orphaned and re-queued. | `300000` |
 
 ### Deadlines (nothing can hang)
 
@@ -219,6 +285,8 @@ gets a definite answer instead of an endless spinner.
 | `INGESTION_PARSE_TIMEOUT_MS` | Parsing one document. | `180000` |
 | `INGESTION_JOB_TIMEOUT_MS` | One ingestion job, end to end. | `900000` |
 | `INGESTION_STALE_JOB_MS` | A "processing" job older than this is orphaned and re-queued. Keep it **above** `INGESTION_JOB_TIMEOUT_MS`. | `1200000` |
+| `CRAWL_TIMEOUT_MS` | One page fetch (web crawl). | `30000` |
+| `CRAWL_STALE_JOB_MS` | A "processing" crawl job older than this is orphaned and re-queued. | `300000` |
 
 Generate a master key:
 
@@ -265,8 +333,8 @@ Current status on this machine (all commands run from the repo root):
 
 | Suite | Command | Result |
 | --- | --- | --- |
-| Backend unit + integration | `npm test` | **109 passed** (12 files) |
-| End-to-end (real browser + real backend) | `npm run test:e2e` | **14 passed** |
+| Backend unit + integration | `npm test` | **128 passed** (14 files) |
+| End-to-end (real browser + real backend) | `npm run test:e2e` | **17 passed** |
 | Retrieval evaluation | `npm run eval:rag` | **8/8 retrieval (100%) + e2e smoke pass** |
 | Backend readiness | `npm run check` | **all checks passed** |
 
@@ -275,10 +343,14 @@ Current status on this machine (all commands run from the repo root):
 - **Backend tests** — parsers, chunker, encryption, security (path traversal, validation,
   CORS), projects, documents/versioning, providers, retrieval, and the chat contract
   (grounding, abstention, source persistence, SSE streaming, prompt-injection wrapping).
+  The knowledge base has its own coverage: URL parsing/canonicalisation, private-host
+  refusal, link lists, collections, crawl jobs and the `.md` export.
 - **End-to-end tests** — a real Chromium browser drives the actual SPA against a real
   backend: onboarding → project → document upload → indexing → ask → read the grounded
-  answer and expand its citations; plus the HTTP-level RAG contract (retrieval, grounding,
-  abstention on empty projects, per-project isolation and explicit cross-project opt-in).
+  answer and expand its citations; the HTTP-level RAG contract (retrieval, grounding,
+  abstention on empty projects, per-project isolation and explicit cross-project opt-in);
+  and the knowledge-base flow (crawl a page → it becomes a document → preview and download
+  its `.md`, create a link list and a collection).
 - **RAG evaluation** — ingests a small labelled corpus and checks the right chunks are
   retrieved, that clearly-absent facts are **not** surfaced, and that a question yields a
   grounded answer with citations.
@@ -300,6 +372,11 @@ All routes are under `/api`. Highlights:
 | Health | `GET /health`, `GET /health/ready`, `GET /system/status` |
 | Projects | `GET/POST /projects`, `GET/PATCH/DELETE /projects/:id` |
 | Documents | `POST /projects/:projectId/documents/upload`, `GET /projects/:id/documents`, `GET/DELETE /documents/:id`, `GET /documents/:id/versions`, `POST /documents/:id/activate-version`, `POST /documents/:id/reindex`, `POST /documents/:id/restore`, `GET /documents/:id/file`, `GET /chunks/:id` |
+| Markdown export | `GET /documents/:id/markdown` (JSON preview), `GET /documents/:id/markdown/download` (raw `.md` attachment; optional `?versionId=`) |
+| Web links | `GET/POST /projects/:id/links`, `GET/PATCH/DELETE /links/:id`, `POST /links/:id/crawl` (re-crawl → new version) |
+| Link lists | `GET/POST /projects/:id/link-lists`, `GET/DELETE /link-lists/:id`, `POST /link-lists/:id/items`, `POST /link-lists/:id/import` |
+| Collections | `GET/POST /projects/:id/collections`, `GET/PATCH/DELETE /collections/:id`, `POST /collections/:id/items`, `DELETE /collections/:id/items/:itemId` |
+| Crawl jobs | `GET /projects/:id/crawl-jobs`, `POST /crawl-jobs/:id/retry` |
 | Conversations | `POST /projects/:projectId/conversations`, `GET /projects/:id/conversations`, `GET/PATCH/DELETE /conversations/:id`, `GET /conversations/:id/messages` |
 | Answering | `POST /conversations/:id/messages` (SSE stream or JSON), `POST /conversations/:id/evidence` (retrieval only) |
 | Projects (extra) | `GET /projects/:id/stats`, `GET /projects/:id/search`, `POST /projects/:id/archive` and `/restore`, `GET /projects/:id/jobs`, `POST /jobs/:id/retry` |
@@ -335,11 +412,12 @@ Streaming answers emit Server-Sent Events: `status`, `retrieval`, `sources`, `to
 │  ├─ src/
 │  │  ├─ config/           validated .env
 │  │  ├─ db/               PostgreSQL/PGlite layer, migrations, schema
+│  │  ├─ crawl/            SSRF-safe fetcher, HTML→Markdown, crawl job worker
 │  │  ├─ embeddings/       local / ollama / openai / hash providers
 │  │  ├─ llm/              provider registry, prompt, streaming
 │  │  ├─ ingestion/        job queue, worker, parsers, chunker
 │  │  ├─ retrieval/        hybrid pgvector + full-text search, RRF, rerank
-│  │  ├─ services/         projects, documents, conversations, providers
+│  │  ├─ services/         projects, documents, conversations, providers, knowledge
 │  │  ├─ middleware/       validation, errors, request context
 │  │  └─ routes/           HTTP endpoints
 │  ├─ tests/               Vitest unit + integration
@@ -391,6 +469,12 @@ These are real and worth knowing before you rely on the app:
 11. **Deadlines are fixed values, not adaptive.** A slow provider is cut off at
     `ASK_TIMEOUT_MS` / `LLM_REQUEST_TIMEOUT_MS` rather than being retried with a longer
     budget. Raise the values in `.env` if your provider is legitimately slow.
+12. **Web crawling needs outbound network access** and is HTML-oriented. A linked PDF or
+    other binary file is fetched but not parsed — crawl the page that links it, or upload
+    the file directly. A crawled page is stored as Markdown, so heavy navigation chrome
+    and styling are dropped.
+13. **The crawler is deliberately slow.** `CRAWL_CONCURRENCY=1` by default so a crawl never
+    hammers a third-party site; raise it only for pages you control.
 
 ### Scanned PDFs
 

@@ -147,6 +147,21 @@ const config = {
   retrievalTimeoutMs: int('RETRIEVAL_TIMEOUT_MS', 60000),
   dbQueryTimeoutMs: int('DB_QUERY_TIMEOUT_MS', 30000),
 
+  // Web crawling (knowledge base: web links, link lists, re-crawls).
+  crawl: {
+    timeoutMs: int('CRAWL_TIMEOUT_MS', 30000),
+    // Hard cap on a single downloaded page (bytes).
+    maxBytes: int('CRAWL_MAX_BYTES', 5 * 1024 * 1024),
+    maxRedirects: int('CRAWL_MAX_REDIRECTS', 5),
+    maxAttempts: Math.max(1, int('CRAWL_MAX_ATTEMPTS', 3)),
+    concurrency: Math.max(1, int('CRAWL_CONCURRENCY', 1)),
+    userAgent: str('CRAWL_USER_AGENT', 'GlobalSoftelRagBot/1.0 (local knowledge-base crawler)'),
+    // Private/loopback addresses are refused by default (SSRF protection).
+    // The test suite enables them so it can crawl a local fixture server.
+    allowPrivateHosts: bool('CRAWL_ALLOW_PRIVATE_HOSTS', isTest),
+    staleJobMs: int('CRAWL_STALE_JOB_MS', 300000),
+  },
+
   // Deadlines for the ingestion pipeline.
   ingestionParseTimeoutMs: int('INGESTION_PARSE_TIMEOUT_MS', 180000),
   ingestionJobTimeoutMs: int('INGESTION_JOB_TIMEOUT_MS', 900000),

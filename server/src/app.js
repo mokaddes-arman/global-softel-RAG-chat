@@ -13,6 +13,7 @@ const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const healthRoutes = require('./routes/health');
 const projectRoutes = require('./routes/projects');
 const documentRoutes = require('./routes/documents');
+const knowledgeRoutes = require('./routes/knowledge');
 const conversationRoutes = require('./routes/conversations');
 const providerRoutes = require('./routes/providers');
 const settingsRoutes = require('./routes/settings');
@@ -68,6 +69,7 @@ function createApp() {
   app.use('/api', usageRoutes);
   app.use('/api/projects', projectRoutes);
   app.use('/api', documentRoutes);
+  app.use('/api', knowledgeRoutes);
   app.use('/api', conversationRoutes);
 
   // Serve the built SPA when it exists (production / `npm run build`).

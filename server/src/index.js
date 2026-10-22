@@ -13,6 +13,7 @@ const { createApp } = require('./app');
 const { initDb, closeDb, dbKind } = require('./db');
 const { migrate } = require('./db/migrate');
 const { startWorker, stopWorker } = require('./ingestion/worker');
+const crawlWorker = require('./crawl/worker');
 
 async function bootstrap() {
   ensureRuntimeDirs();
@@ -29,6 +30,7 @@ async function bootstrap() {
   logger.info({ backend: dbKind() }, 'database ready');
 
   await startWorker();
+  await crawlWorker.startWorker();
 
   const app = createApp();
   const server = app.listen(config.port, config.host, () => {
@@ -41,6 +43,7 @@ async function bootstrap() {
   const shutdown = async (signal) => {
     logger.info({ signal }, 'shutting down');
     server.close();
+    await crawlWorker.stopWorker().catch(() => {});
     await stopWorker().catch(() => {});
     await closeDb().catch(() => {});
     process.exit(0);

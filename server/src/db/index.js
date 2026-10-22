@@ -172,6 +172,29 @@ async function initDb() {
   return initPromise;
 }
 
+/**
+ * Serialises transactions inside this process.
+ *
+ * The embedded PGlite backend has a *single* connection, so two overlapping
+ * `BEGIN`/`COMMIT` pairs would interleave: the second transaction's
+ * statements would run inside the first one and the second COMMIT would have
+ * nothing to commit. The ingestion worker and the crawl worker both write, so
+ * they must not overlap.
+ */
+let transactionChain = Promise.resolve();
+
+function withTransaction(fn) {
+  const run = () =>
+    txContext.run({ inTransaction: true }, () => getDb().withTransaction(fn));
+  const result = transactionChain.then(run, run);
+  // Keep the chain alive even when a transaction rejects.
+  transactionChain = result.then(
+    () => {},
+    () => {},
+  );
+  return result;
+}
+
 function getDb() {
   if (!adapter) {
     throw new AppError('Database has not been initialised yet. Call initDb() first.', {
@@ -191,10 +214,6 @@ async function query(text, params = []) {
     );
   }
   return withQueryTimeout(getDb().query(text, params), config.dbQueryTimeoutMs, 'query');
-}
-
-async function withTransaction(fn) {
-  return txContext.run({ inTransaction: true }, () => getDb().withTransaction(fn));
 }
 
 async function closeDb() {

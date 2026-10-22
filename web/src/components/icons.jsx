@@ -69,3 +69,24 @@ export const MenuIcon = (p) => <Icon {...p} path={<path d="M3 6h18M3 12h18M3 18h
 export const ChartIcon = (p) => (
   <Icon {...p} path={<><path d="M3 3v18h18" /><rect x="7" y="10" width="3" height="7" rx="1" /><rect x="13" y="6" width="3" height="11" rx="1" /></>} />
 );
+export const LinkIcon = (p) => (
+  <Icon {...p} path={<><path d="M10 13a5 5 0 007.1.1l2-2a5 5 0 00-7.1-7.1l-1.1 1.1" /><path d="M14 11a5 5 0 00-7.1-.1l-2 2A5 5 0 0012 20l1.1-1.1" /></>} />
+);
+export const GlobeIcon = (p) => (
+  <Icon {...p} path={<><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3a15 15 0 010 18 15 15 0 010-18z" /></>} />
+);
+export const FolderIcon = (p) => (
+  <Icon {...p} path={<path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />} />
+);
+export const ListIcon = (p) => (
+  <Icon {...p} path={<><path d="M8 6h13M8 12h13M8 18h13" /><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01" /></>} />
+);
+export const MarkdownIcon = (p) => (
+  <Icon {...p} path={<><rect x="2.5" y="5" width="19" height="14" rx="2" /><path d="M6 15v-6l3 3.5 3-3.5v6" /><path d="M16 9v6" /><path d="M13.5 12.5L16 15l2.5-2.5" /></>} />
+);
+export const CrawlIcon = (p) => (
+  <Icon {...p} path={<><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1" /></>} />
+);
+export const AttachmentIcon = (p) => (
+  <Icon {...p} path={<path d="M21.4 11.05l-8.5 8.5a5.5 5.5 0 01-7.78-7.78l8.5-8.5a3.67 3.67 0 015.18 5.18l-8.5 8.5a1.83 1.83 0 01-2.59-2.6l7.86-7.85" />} />
+);

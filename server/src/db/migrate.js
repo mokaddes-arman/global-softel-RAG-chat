@@ -93,6 +93,12 @@ async function status() {
 async function rollback() {
   await initDb();
   await getDb().exec(`
+    DROP TABLE IF EXISTS crawl_jobs CASCADE;
+    DROP TABLE IF EXISTS collection_items CASCADE;
+    DROP TABLE IF EXISTS web_links CASCADE;
+    DROP TABLE IF EXISTS link_list_items CASCADE;
+    DROP TABLE IF EXISTS link_lists CASCADE;
+    DROP TABLE IF EXISTS collections CASCADE;
     DROP TABLE IF EXISTS message_sources CASCADE;
     DROP TABLE IF EXISTS messages CASCADE;
     DROP TABLE IF EXISTS conversations CASCADE;

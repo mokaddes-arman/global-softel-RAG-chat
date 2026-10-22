@@ -196,6 +196,73 @@ Verified
   (`npm run test:e2e`) **14 passed**
 - [x] Docs — README (deadline table, limitations), `LIMITATIONS.md` (new section I)
 
+## Stage 11 — Knowledge base: web links, link lists, collections, re-crawl
+**Goal:** let a project absorb the web, not just uploaded files — and expose all of it
+under the existing **Documents** nav, split into **"Upload documents"** and
+**"View documents"**.
+
+**Decisions locked:** a crawled page becomes a **normal `documents` row** (a `.md` version),
+so it is retrieved, cited and versioned exactly like an upload · **re-crawl adds a new
+version** and keeps the history (old citations stay verifiable) · a separate `crawl_jobs`
+queue with its own worker · **SSRF-safe fetching** by default · the shared `.md` file of
+every document is previewable in-app and downloadable.
+
+Backend
+- [x] Migration `005_knowledge_base.sql` — `link_lists`, `link_list_items`, `collections`,
+  `web_links`, `collection_items`, `crawl_jobs`
+- [x] `crawl/fetcher.js` — `fetchUrl` / `parseUrl` / `canonicalUrl` / `isPrivateAddress`:
+  http/https only, no embedded credentials, loopback / link-local / private / unique-local
+  hosts refused, **every redirect hop re-validated**, size cap, timeout
+- [x] `crawl/markdown.js` — HTML → Markdown (headings, lists, tables, code, links)
+- [x] `crawl/pipeline.js` — fetch → Markdown → new document version → normal ingestion;
+  the link flips to `indexed` from a hook in `ingestion/pipeline.js`
+- [x] `crawl/worker.js` — DB-backed job queue (`FOR UPDATE SKIP LOCKED`), stale-job recovery,
+  attempts/retries
+- [x] `services/knowledge.js` — web links, link lists, collections, crawl jobs
+- [x] `routes/knowledge.js` — `/projects/:id/links`, `/links/:id/crawl`, `/link-lists/*`,
+  `/collections/*`, `/crawl-jobs/:id/retry`
+- [x] `services/documents.js` — `archiveDocument()`, `buildDocumentMarkdown()` (YAML front
+  matter), `markdownFilename()`
+- [x] `routes/documents.js` — `GET /documents/:id/markdown` (JSON preview) and
+  `GET /documents/:id/markdown/download` (raw `.md` attachment)
+- [x] `config/env.js` — `config.crawl.*` (`timeoutMs`, `maxBytes`, `maxRedirects`,
+  `maxAttempts`, `concurrency`, `userAgent`, `allowPrivateHosts`, `staleJobMs`)
+- [x] `lib/errors.js` — `CRAWL_FAILED` and `UNSAFE_URL` error codes
+- [x] `db/index.js` — process-level transaction mutex so the ingestion and crawl workers
+  cannot interleave `BEGIN/COMMIT` on the single PGlite connection
+- [x] `index.js` — the crawl worker is started with the server
+
+Frontend
+- [x] `web/src/api.js` — knowledge-base client methods + `documentMarkdown` /
+  `documentMarkdownUrl`
+- [x] `web/src/components/icons.jsx` — `LinkIcon`, `GlobeIcon`, `FolderIcon`, `ListIcon`,
+  `MarkdownIcon`, `CrawlIcon`, `AttachmentIcon`
+- [x] `web/src/components/knowledge/` — `Section.jsx`, `KnowledgeBase.jsx`,
+  `WebLinksSection.jsx`, `LinkListsSection.jsx`, `CollectionsSection.jsx`,
+  `CrawlJobsSection.jsx`
+- [x] `web/src/components/MarkdownPreview.jsx` — in-app `.md` preview modal
+- [x] `web/src/views/DocumentsView.jsx` — the two tabs; **View documents** holds the table
+  plus the shared `.md` (preview + download icon)
+
+Tests & docs
+- [x] `server/tests/unit/crawl.test.js` — URL parsing/canonicalisation, private-host refusal
+- [x] `server/tests/integration/knowledge.test.js` — links, link lists, collections, crawl
+  jobs, `.md` export
+- [x] `server/tests/helpers.js` — `resetData` truncate list + `waitForCrawl`
+- [x] e2e `04-knowledge-base.spec.js` — crawl → document, `.md` preview + download filename,
+  link list + collection creation; `03-ui-workflow.spec.js` updated for the tabs
+- [x] All suites green — backend (`npm test`) **128 passed** (14 files), e2e
+  (`npm run test:e2e`) **17 passed**
+- [x] Docs — README (Documents page, SSRF-safe crawling, `CRAWL_*` config, API surface),
+  `.env.example` (`CRAWL_*`)
+
+Notes
+- The Documents nav button still resolves uniquely in e2e: the tabs use ARIA
+  `role="tab"` / `role="tabpanel"`, not buttons.
+- The default tab is **"Upload documents"**; the workflow test switches tabs explicitly.
+- `validateProviderId` now accepts the offline `mock` provider **only** in test mode — that
+  alone fixed 16 previously failing backend tests.
+
 ## Deliverables status
 - [x] Backend (Node/Express/CommonJS)
 - [x] PostgreSQL schema + pgvector retrieval
@@ -204,8 +271,9 @@ Verified
 - [x] Encrypted multi-key provider management
 - [x] Grounded answers with verifiable citations
 - [x] React frontend
-- [x] Automated tests green (107 backend + 14 e2e + 8/8 RAG eval)
+- [x] Automated tests green (128 backend + 17 e2e + 8/8 RAG eval)
 - [x] Per-project persona/instructions + sandboxed HTML deliverables (Stage 8)
 - [x] OpenRouter + Groq as the only answer providers (automatic fallback) + `/model-usage` page (Stage 9)
 - [x] No-hang reliability: stage deadlines, assistant placeholder, SSE/body deadlines, stale-job recovery (Stage 10)
+- [x] Knowledge base: web links, link lists, collections, re-crawl, shared `.md` (Stage 11)
 - [x] `.env.example` / `.gitignore` / README / PowerShell setup docs
