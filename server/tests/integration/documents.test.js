@@ -38,6 +38,21 @@ describe('document ingestion', () => {
     expect(rows[0].content).toContain('Sunday');
   });
 
+  it('parses HTML whose text is wrapped in divs rather than paragraphs', async () => {
+    const docId = await h.uploadAndIndex(
+      project.id,
+      'release-notes.html',
+      '<!doctype html><html><head><title>Release Notes</title></head><body><div class="shell"><div class="content"><div class="headline">Release Notes</div><div class="body">Version 2.0 adds support for SSO.</div></div></div></body></html>',
+    );
+
+    const res = await h.request(h.getApp()).get(`/api/documents/${docId}`).expect(200);
+    expect(res.body.document.status).toBe('indexed');
+    expect(res.body.document.versions[0].chunk_count).toBeGreaterThan(0);
+
+    const { rows } = await h.query('SELECT content FROM document_chunks WHERE document_id = $1', [docId]);
+    expect(rows.map((row) => row.content).join('\n')).toContain('Version 2.0 adds support for SSO.');
+  });
+
   it('rejects a duplicate upload with an actionable conflict', async () => {
     const content = 'Duplicated policy content here.';
     await h.uploadAndIndex(project.id, 'policy.txt', content);
