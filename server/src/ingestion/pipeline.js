@@ -289,6 +289,12 @@ async function processJob(jobId) {
     };
     await updateJob(jobId, { status: 'completed', stage: 'completed', progress: 100, finished_at: new Date(), metrics });
 
+    // A crawled web page is indexed through this very pipeline, so the link
+    // is marked as indexed only once its chunks really exist.
+    await query(`UPDATE web_links SET status = 'indexed', last_error = NULL WHERE document_id = $1 AND status <> 'archived'`, [
+      ctx.document_id,
+    ]).catch(() => {});
+
     logger.info({ jobId, chunks: chunks.length, totalMs: metrics.totalMs }, 'ingestion completed');
     return { ok: true, chunkCount: chunks.length, metrics };
   } catch (err) {

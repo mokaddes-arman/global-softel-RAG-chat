@@ -37,6 +37,8 @@ const Codes = {
   ENCRYPTED_DOCUMENT: 'encrypted_document',
   OCR_REQUIRED: 'ocr_required',
   NO_RELEVANT_DOCUMENTS: 'no_relevant_documents',
+  CRAWL_FAILED: 'crawl_failed',
+  UNSAFE_URL: 'unsafe_url',
   EMBEDDING_UNAVAILABLE: 'embedding_unavailable',
   EMBEDDING_DIM_MISMATCH: 'embedding_dim_mismatch',
   DATABASE_UNAVAILABLE: 'database_unavailable',

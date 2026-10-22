@@ -311,6 +311,107 @@ async function restoreDocument(id) {
   return { restored: true, id };
 }
 
+/**
+ * Archive a document without destroying its history.
+ *
+ * Used when a web link is removed: the page that was crawled stays in the
+ * version history so existing citations keep resolving, but it is no longer
+ * retrieved.
+ */
+async function archiveDocument(id) {
+  const doc = await getDocumentRow(id);
+  if (!doc) return { archived: false, id };
+  await withTransaction(async (tx) => {
+    await tx.query(`UPDATE documents SET archived = true, status = 'archived' WHERE id = $1`, [id]);
+    await tx.query(`UPDATE document_versions SET is_active = false WHERE document_id = $1`, [id]);
+    await tx.query(
+      `UPDATE ingestion_jobs SET status = 'cancelled', finished_at = now() WHERE document_id = $1 AND status IN ('queued','processing')`,
+      [id],
+    );
+  });
+  return { archived: true, id };
+}
+
+/** Files that are already plain text can be shared verbatim. */
+const TEXTUAL_EXTENSIONS = new Set(['md', 'markdown', 'mdx', 'txt', 'text', 'log', 'rst']);
+
+/** A safe, readable file name for the shared markdown export. */
+function markdownFilename(title, fallback = 'document') {
+  const stem = String(title || fallback)
+    .replace(/\.[a-z0-9]{1,8}$/i, '')
+    .replace(/[^\w\s.-]+/g, ' ')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 100);
+  return `${stem || fallback}.md`;
+}
+
+/**
+ * Build the shareable Markdown representation of a document.
+ *
+ * The result is what the user sees in "View documents" and what the download
+ * icon saves: the document content as a single `.md` file with a small YAML
+ * front-matter header describing where it came from.
+ */
+async function buildDocumentMarkdown(id, { versionId } = {}) {
+  const doc = await getDocumentRow(id);
+  if (!doc) throw new AppError('Document not found.', { code: Codes.NOT_FOUND, status: 404 });
+
+  const { rows: versions } = await query(
+    `SELECT id, version_number, original_filename, file_ext, storage_path, status, indexed_at, uploaded_at
+     FROM document_versions WHERE document_id = $1 ORDER BY version_number DESC`,
+    [id],
+  );
+  const version = versionId ? versions.find((v) => v.id === versionId) : versions.find((v) => v.id === doc.current_version_id);
+  if (!version) {
+    throw new AppError('That document has no stored version to share.', { code: Codes.NOT_FOUND, status: 404 });
+  }
+
+  let body = null;
+  if (TEXTUAL_EXTENSIONS.has(String(version.file_ext || '').toLowerCase())) {
+    try {
+      body = (await storage.readStoredFile(version.storage_path, config.maxUploadSizeMb * 1024 * 1024)).toString('utf8');
+    } catch {
+      body = null;
+    }
+  }
+  if (!body) {
+    // Reconstruct the text from the indexed chunks - this is what makes every
+    // format (PDF, DOCX, XLSX, ...) shareable as Markdown.
+    const { rows: chunks } = await query(
+      'SELECT content FROM document_chunks WHERE document_version_id = $1 ORDER BY chunk_index ASC',
+      [version.id],
+    );
+    body = chunks.map((c) => c.content).join('\n\n');
+  }
+  body = String(body || '').replace(/\r\n/g, '\n').trim();
+
+  const { rows: projectRows } = await query('SELECT name FROM projects WHERE id = $1', [doc.project_id]);
+  const { rows: linkRows } = await query('SELECT url, title FROM web_links WHERE document_id = $1 LIMIT 1', [id]);
+
+  const frontMatter = [
+    '---',
+    `title: ${JSON.stringify(doc.title)}`,
+    `source: ${JSON.stringify(version.original_filename || doc.original_filename)}`,
+    `project: ${JSON.stringify(projectRows[0]?.name || '')}`,
+    `version: ${version.version_number}`,
+    `updated: ${new Date(version.indexed_at || version.uploaded_at || Date.now()).toISOString()}`,
+  ];
+  if (linkRows[0]?.url) frontMatter.push(`url: ${JSON.stringify(linkRows[0].url)}`);
+  frontMatter.push('---');
+
+  const markdown = `${frontMatter.join('\n')}\n\n${body}\n`;
+  return {
+    filename: markdownFilename(doc.title),
+    markdown,
+    title: doc.title,
+    versionNumber: version.version_number,
+    sourceUrl: linkRows[0]?.url || null,
+    characters: body.length,
+  };
+}
+
 /** Activate a specific historical version (used by the versions UI). */
 async function activateVersion(documentId, versionId) {
   const doc = await getDocumentRow(documentId);
@@ -406,10 +507,13 @@ module.exports = {
   getDocumentWithVersions,
   getDocumentRow,
   deleteDocument,
+  archiveDocument,
   restoreDocument,
   activateVersion,
   reindexDocument,
   retryJob,
   listJobs,
   findVersionsByHash,
+  buildDocumentMarkdown,
+  markdownFilename,
 };

@@ -17,17 +17,27 @@ import {
 } from '../components/ui';
 import {
   AlertIcon,
+  AttachmentIcon,
   DocIcon,
   DownloadIcon,
+  MarkdownIcon,
   RefreshIcon,
   TrashIcon,
   UploadIcon,
 } from '../components/icons';
-import { formatBytes, formatDate, formatNumber, formatRelative } from '../lib/format';
+import { KnowledgeBase } from '../components/knowledge/KnowledgeBase';
+import { MarkdownPreview } from '../components/MarkdownPreview';
+import { formatBytes, formatNumber, formatRelative } from '../lib/format';
 
 function statusBadge(status) {
   return <Badge tone={statusTone(status)}>{status}</Badge>;
 }
+
+/** The two sections of the Documents view. */
+const TABS = [
+  { id: 'upload', label: 'Upload documents' },
+  { id: 'view', label: 'View documents' },
+];
 
 function UploadPanel({ projectId, onUploaded }) {
   const toast = useToast();
@@ -311,6 +321,7 @@ export function DocumentsView() {
   const { activeProject, refreshSystemStatus } = useApp();
   const toast = useToast();
 
+  const [tab, setTab] = useState('upload');
   const [documents, setDocuments] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -319,6 +330,7 @@ export function DocumentsView() {
   const [includeArchived, setIncludeArchived] = useState(false);
 
   const [versionsDocId, setVersionsDocId] = useState(null);
+  const [markdownDocId, setMarkdownDocId] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [busyId, setBusyId] = useState(null);
@@ -478,168 +490,223 @@ export function DocumentsView() {
             <RefreshIcon className="h-3.5 w-3.5" /> Refresh
           </Button>
         </div>
+
+        <div role="tablist" aria-label="Documents sections" className="mt-3 flex gap-1">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              id={`documents-tab-${t.id}`}
+              aria-selected={tab === t.id}
+              aria-controls={`documents-panel-${t.id}`}
+              onClick={() => setTab(t.id)}
+              className={cn(
+                'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                tab === t.id
+                  ? 'bg-blue-600 text-white'
+                  : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800',
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </header>
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-        <UploadPanel projectId={activeProject.id} onUploaded={() => load({ silent: true })} />
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        {tab === 'upload' ? (
+          <div
+            role="tabpanel"
+            id="documents-panel-upload"
+            aria-labelledby="documents-tab-upload"
+            className="space-y-4"
+          >
+            <UploadPanel projectId={activeProject.id} onUploaded={() => load({ silent: true })} />
 
-        {failedJobs.length > 0 && (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/40">
-            <p className="flex items-center gap-2 text-sm font-medium text-red-700 dark:text-red-300">
-              <AlertIcon className="h-4 w-4" /> {failedJobs.length} ingestion job
-              {failedJobs.length === 1 ? '' : 's'} failed
-            </p>
-            <ul className="mt-2 space-y-1 text-xs text-red-700 dark:text-red-300">
-              {failedJobs.slice(0, 5).map((j) => (
-                <li key={j.id} className="flex items-center justify-between gap-2">
-                  <span className="truncate">
-                    {j.document_title || 'Document'} — {j.error || j.error_code || 'unknown error'}
-                  </span>
-                  <Button size="sm" variant="ghost" onClick={() => retryJob(j)}>
-                    Retry
-                  </Button>
-                </li>
-              ))}
-            </ul>
+            {failedJobs.length > 0 && (
+              <div className="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/40">
+                <p className="flex items-center gap-2 text-sm font-medium text-red-700 dark:text-red-300">
+                  <AlertIcon className="h-4 w-4" /> {failedJobs.length} ingestion job
+                  {failedJobs.length === 1 ? '' : 's'} failed
+                </p>
+                <ul className="mt-2 space-y-1 text-xs text-red-700 dark:text-red-300">
+                  {failedJobs.slice(0, 5).map((j) => (
+                    <li key={j.id} className="flex items-center justify-between gap-2">
+                      <span className="truncate">
+                        {j.document_title || 'Document'} — {j.error || j.error_code || 'unknown error'}
+                      </span>
+                      <Button size="sm" variant="ghost" onClick={() => retryJob(j)}>
+                        Retry
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <KnowledgeBase projectId={activeProject.id} documents={documents} />
           </div>
-        )}
-
-        <div className="flex flex-wrap items-end gap-2">
-          <Field label="Search" className="min-w-[200px] flex-1">
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Filter by title or filename"
-            />
-          </Field>
-          <Field label="Status">
-            <Select value={status} onChange={(e) => setStatus(e.target.value)}>
-              <option value="">All</option>
-              <option value="pending">Pending</option>
-              <option value="processing">Processing</option>
-              <option value="indexed">Indexed</option>
-              <option value="failed">Failed</option>
-              <option value="archived">Archived</option>
-            </Select>
-          </Field>
-          <label className="mb-1.5 inline-flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
-            <input
-              type="checkbox"
-              checked={includeArchived}
-              onChange={(e) => setIncludeArchived(e.target.checked)}
-            />
-            Include archived
-          </label>
-        </div>
-
-        {loading && !documents.length ? (
-          <div className="flex items-center gap-2 text-sm text-slate-500">
-            <Spinner /> Loading documents…
-          </div>
-        ) : documents.length === 0 ? (
-          <EmptyState
-            icon={<DocIcon className="h-8 w-8 text-slate-400" />}
-            title="No documents yet"
-            description="Upload a PDF, Word document, spreadsheet or text file to build this project's knowledge base."
-          />
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
-            <table className="w-full min-w-[720px] text-sm">
-              <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500 dark:bg-slate-900">
-                <tr>
-                  <th className="px-3 py-2">Document</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Ver</th>
-                  <th className="px-3 py-2">Chunks</th>
-                  <th className="px-3 py-2">Size</th>
-                  <th className="px-3 py-2">Updated</th>
-                  <th className="px-3 py-2 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {documents.map((doc) => (
-                  <tr
-                    key={doc.id}
-                    className="border-t border-slate-100 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900/60"
-                  >
-                    <td className="max-w-[260px] px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <DocIcon className="h-4 w-4 shrink-0 text-slate-400" />
-                        <div className="min-w-0">
-                          <p className="truncate font-medium text-slate-800 dark:text-slate-100" title={doc.title}>
-                            {doc.title}
-                          </p>
-                          <p className="truncate text-[11px] text-slate-400">
-                            {doc.original_filename}
-                            {doc.file_ext ? ` · ${doc.file_ext.toUpperCase()}` : ''}
-                          </p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2">{statusBadge(doc.status)}</td>
-                    <td className="px-3 py-2 text-slate-600 dark:text-slate-300">
-                      v{doc.current_version_number ?? 1}
-                      {doc.version_count > 1 && (
-                        <span className="ml-1 text-[11px] text-slate-400">({doc.version_count})</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-slate-600 dark:text-slate-300">
-                      {formatNumber(doc.chunk_count_actual)}
-                    </td>
-                    <td className="px-3 py-2 text-slate-600 dark:text-slate-300">
-                      {formatBytes(doc.size_bytes)}
-                    </td>
-                    <td className="px-3 py-2 text-slate-500">{formatRelative(doc.updated_at)}</td>
-                    <td className="px-3 py-2">
-                      <div className="flex flex-wrap items-center justify-end gap-1">
-                        <a
-                          href={api.fileUrl(doc.id, { download: true })}
-                          className="rounded p-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
-                          title="Download"
-                        >
-                          <DownloadIcon className="h-3.5 w-3.5" />
-                        </a>
-                        <Button size="sm" variant="ghost" onClick={() => setVersionsDocId(doc.id)}>
-                          Versions
-                        </Button>
-                        {doc.archived ? (
-                          <Button size="sm" variant="ghost" onClick={() => restore(doc)} loading={busyId === doc.id}>
-                            Restore
-                          </Button>
-                        ) : (
-                          <>
+          <div
+            role="tabpanel"
+            id="documents-panel-view"
+            aria-labelledby="documents-tab-view"
+            className="space-y-4"
+          >
+            <div className="flex flex-wrap items-end gap-2">
+              <Field label="Search" className="min-w-[200px] flex-1">
+                <Input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Filter by title or filename"
+                />
+              </Field>
+              <Field label="Status">
+                <Select value={status} onChange={(e) => setStatus(e.target.value)}>
+                  <option value="">All</option>
+                  <option value="pending">Pending</option>
+                  <option value="processing">Processing</option>
+                  <option value="indexed">Indexed</option>
+                  <option value="failed">Failed</option>
+                  <option value="archived">Archived</option>
+                </Select>
+              </Field>
+              <label className="mb-1.5 inline-flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={includeArchived}
+                  onChange={(e) => setIncludeArchived(e.target.checked)}
+                />
+                Include archived
+              </label>
+            </div>
+
+            {loading && !documents.length ? (
+              <div className="flex items-center gap-2 text-sm text-slate-500">
+                <Spinner /> Loading documents…
+              </div>
+            ) : documents.length === 0 ? (
+              <EmptyState
+                icon={<DocIcon className="h-8 w-8 text-slate-400" />}
+                title="No documents yet"
+                description="Upload a PDF, Word document, spreadsheet or text file to build this project's knowledge base."
+              />
+            ) : (
+              <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                <table className="w-full min-w-[720px] text-sm">
+                  <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500 dark:bg-slate-900">
+                    <tr>
+                      <th className="px-3 py-2">Document</th>
+                      <th className="px-3 py-2">Status</th>
+                      <th className="px-3 py-2">Ver</th>
+                      <th className="px-3 py-2">Chunks</th>
+                      <th className="px-3 py-2">Size</th>
+                      <th className="px-3 py-2">Updated</th>
+                      <th className="px-3 py-2 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {documents.map((doc) => (
+                      <tr
+                        key={doc.id}
+                        className="border-t border-slate-100 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900/60"
+                      >
+                        <td className="max-w-[260px] px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            <DocIcon className="h-4 w-4 shrink-0 text-slate-400" />
+                            <div className="min-w-0">
+                              <p className="truncate font-medium text-slate-800 dark:text-slate-100" title={doc.title}>
+                                {doc.title}
+                              </p>
+                              <p className="truncate text-[11px] text-slate-400">
+                                {doc.original_filename}
+                                {doc.file_ext ? ` · ${doc.file_ext.toUpperCase()}` : ''}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2">{statusBadge(doc.status)}</td>
+                        <td className="px-3 py-2 text-slate-600 dark:text-slate-300">
+                          v{doc.current_version_number ?? 1}
+                          {doc.version_count > 1 && (
+                            <span className="ml-1 text-[11px] text-slate-400">({doc.version_count})</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-slate-600 dark:text-slate-300">
+                          {formatNumber(doc.chunk_count_actual)}
+                        </td>
+                        <td className="px-3 py-2 text-slate-600 dark:text-slate-300">
+                          {formatBytes(doc.size_bytes)}
+                        </td>
+                        <td className="px-3 py-2 text-slate-500">{formatRelative(doc.updated_at)}</td>
+                        <td className="px-3 py-2">
+                          <div className="flex flex-wrap items-center justify-end gap-1">
+                            <a
+                              href={api.fileUrl(doc.id, { download: true })}
+                              className="rounded p-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+                              title="Download the original file"
+                            >
+                              <AttachmentIcon className="h-3.5 w-3.5" />
+                            </a>
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => triggerAddVersion(doc)}
-                              loading={busyId === doc.id}
+                              onClick={() => setMarkdownDocId(doc.id)}
+                              title="View the shared Markdown file"
                             >
-                              New version
+                              <MarkdownIcon className="h-3.5 w-3.5" /> View .md
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => reindex(doc)}
-                              disabled={doc.status === 'processing'}
+                            <a
+                              href={api.documentMarkdownUrl(doc.id)}
+                              className="rounded p-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+                              title="Download the shared Markdown file"
                             >
-                              Re-index
+                              <DownloadIcon className="h-3.5 w-3.5" />
+                            </a>
+                            <Button size="sm" variant="ghost" onClick={() => setVersionsDocId(doc.id)}>
+                              Versions
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setPendingDelete(doc)}
-                              title="Delete"
-                            >
-                              <TrashIcon className="h-3.5 w-3.5" />
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                            {doc.archived ? (
+                              <Button size="sm" variant="ghost" onClick={() => restore(doc)} loading={busyId === doc.id}>
+                                Restore
+                              </Button>
+                            ) : (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => triggerAddVersion(doc)}
+                                  loading={busyId === doc.id}
+                                >
+                                  New version
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => reindex(doc)}
+                                  disabled={doc.status === 'processing'}
+                                >
+                                  Re-index
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setPendingDelete(doc)}
+                                  title="Delete"
+                                >
+                                  <TrashIcon className="h-3.5 w-3.5" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -655,6 +722,10 @@ export function DocumentsView() {
         documentId={versionsDocId}
         onClose={() => setVersionsDocId(null)}
         onChanged={() => load({ silent: true })}
+      />
+      <MarkdownPreview
+        documentId={markdownDocId}
+        onClose={() => setMarkdownDocId(null)}
       />
       <ConfirmDialog
         open={Boolean(pendingDelete)}

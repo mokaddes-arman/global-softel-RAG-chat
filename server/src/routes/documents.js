@@ -180,6 +180,40 @@ router.get(
   }),
 );
 
+/**
+ * The shareable Markdown representation of a document.
+ *
+ * `GET /documents/:id/markdown` returns JSON so the UI can preview the file,
+ * `GET /documents/:id/markdown/download` sends the raw `.md` file (that is
+ * what the download icon in "View documents" points at).
+ */
+router.get(
+  '/documents/:id/markdown',
+  validateUuidParam('id'),
+  validateQuery(z.object({ versionId: z.string().uuid().optional() })),
+  asyncHandler(async (req, res) => {
+    const result = await documents.buildDocumentMarkdown(req.params.id, {
+      versionId: req.validatedQuery?.versionId || null,
+    });
+    res.json({ markdown: result });
+  }),
+);
+
+router.get(
+  '/documents/:id/markdown/download',
+  validateUuidParam('id'),
+  validateQuery(z.object({ versionId: z.string().uuid().optional() })),
+  asyncHandler(async (req, res) => {
+    const result = await documents.buildDocumentMarkdown(req.params.id, {
+      versionId: req.validatedQuery?.versionId || null,
+    });
+    const filename = storage.sanitiseFilename(result.filename, 'document.md');
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(result.markdown);
+  }),
+);
+
 /** Full content + metadata of a single retrieved chunk (citation inspection). */
 router.get(
   '/chunks/:id',

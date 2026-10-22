@@ -9,6 +9,7 @@ const {
   listLlmProviders,
   testProviderConnection,
   isSupportedLlmProvider,
+  SUPPORTED_LLM_PROVIDERS,
 } = require('../llm');
 
 /**
@@ -47,9 +48,12 @@ async function getLlmConfig(id) {
 }
 
 function validateProviderId(provider) {
+  // Only the two hosted providers may be configured. The offline mock adapter is
+  // registered for the test suite only, so it is accepted there as well.
+  const allowed = config.isTest ? [...SUPPORTED_LLM_PROVIDERS, 'mock'] : [...SUPPORTED_LLM_PROVIDERS];
   const known = listLlmProviders().map((p) => p.id);
-  if (!known.includes(provider)) {
-    throw new AppError(`Unknown LLM provider "${provider}". Supported: ${known.join(', ')}.`, {
+  if (!allowed.includes(provider) || !known.includes(provider)) {
+    throw new AppError(`Unknown LLM provider "${provider}". Supported: ${allowed.join(', ')}.`, {
       code: Codes.VALIDATION,
       status: 400,
     });
