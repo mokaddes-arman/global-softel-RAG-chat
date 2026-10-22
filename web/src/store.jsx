@@ -4,9 +4,12 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
-import { api } from './api';
+import { api, askStream } from './api';
+import { useToast } from './components/ui';
+import { normaliseSource } from './lib/sources';
 
 /**
  * A single small store for cross-cutting UI state: which project is active,
@@ -16,6 +19,9 @@ import { api } from './api';
  */
 
 const AppContext = createContext(null);
+// Chat messages and the live generation live in their own context: the stream
+// updates on every token, and only the chat view needs to re-render for that.
+const AskContext = createContext(null);
 
 const THEME_KEY = 'rag.theme';
 const PROJECT_KEY = 'rag.activeProjectId';
@@ -47,6 +53,22 @@ export function AppProvider({ children }) {
   const [conversations, setConversations] = useState([]);
   const [conversationsLoading, setConversationsLoading] = useState(false);
   const [activeConversationId, setActiveConversationId] = useState(null);
+
+  // Messages of the open conversation and the one in-flight generation live
+  // here, not in ChatView. ChatView unmounts when you open Documents, Search or
+  // Settings; keeping the stream in the provider means switching pages never
+  // interrupts an answer and the text is still there when you come back.
+  const [messages, setMessages] = useState([]);
+  const [messageSources, setMessageSources] = useState([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [messagesError, setMessagesError] = useState(null);
+  const [ask, setAsk] = useState(null);
+
+  const activeConversationIdRef = useRef(null);
+  const askControllerRef = useRef(null);
+  const askStreamingRef = useRef(null); // conversation id currently streaming
+  const askSeqRef = useRef(0);
+  const toast = useToast();
 
   // --- theme -----------------------------------------------------------------
   useEffect(() => {
@@ -180,6 +202,145 @@ export function AppProvider({ children }) {
     }
   }, [activeProjectId]);
 
+  // Keep a ref in sync so async loads can tell whether their conversation is
+  // still the one on screen.
+  useEffect(() => {
+    activeConversationIdRef.current = activeConversationId;
+  }, [activeConversationId]);
+
+  const loadMessages = useCallback(async (id) => {
+    if (!id) {
+      setMessages([]);
+      setMessageSources([]);
+      setMessagesError(null);
+      setMessagesLoading(false);
+      return;
+    }
+    // While a generation is streaming into this conversation the live buffer in
+    // `ask` is authoritative; reloading now would duplicate the exchange.
+    if (askStreamingRef.current === id) return;
+    setMessagesLoading(true);
+    setMessagesError(null);
+    try {
+      const data = await api.conversationMessages(id);
+      if (activeConversationIdRef.current !== id || askStreamingRef.current === id) return;
+      setMessages(data.messages || []);
+      setMessageSources(data.sources || []);
+      setMessagesLoading(false);
+    } catch (err) {
+      if (activeConversationIdRef.current !== id || askStreamingRef.current === id) return;
+      setMessagesError(err);
+      setMessages([]);
+      setMessageSources([]);
+      setMessagesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadMessages(activeConversationId);
+  }, [activeConversationId, loadMessages]);
+
+  /** Stop the generation that is currently running, if any. */
+  const stopAsk = useCallback(() => {
+    askControllerRef.current?.abort();
+  }, []);
+
+  /**
+   * Ask a question and stream the answer into `ask`.
+   *
+   * The request is owned by the provider rather than by ChatView, so opening
+   * another page does not abort it. Only one generation runs at a time.
+   */
+  const askQuestion = useCallback(
+    async ({ question, crossProject = false, allowUngrounded = false, llmConfigId = '' }) => {
+      if (!activeProject) return;
+      if (askControllerRef.current) return;
+
+      let conversationId = activeConversationId;
+      if (!conversationId) {
+        try {
+          const data = await api.createConversation(activeProject.id, {});
+          conversationId = data.conversation.id;
+          setActiveConversationId(conversationId);
+          await refreshConversations();
+        } catch (err) {
+          toast.error(err.message);
+          return;
+        }
+      }
+
+      const seq = ++askSeqRef.current;
+      const controller = new AbortController();
+      askControllerRef.current = controller;
+      askStreamingRef.current = conversationId;
+
+      setAsk({
+        id: seq,
+        conversationId,
+        projectId: activeProject.id,
+        question,
+        content: '',
+        sources: [],
+        stats: null,
+        status: { stage: 'starting', message: 'Starting…' },
+        streaming: true,
+      });
+
+      const patch = (update) =>
+        setAsk((prev) => (prev && prev.id === seq ? { ...prev, ...update } : prev));
+
+      try {
+        await askStream(
+          conversationId,
+          {
+            question,
+            crossProject,
+            allowUngroundedAnswer: allowUngrounded,
+            llmConfigId: llmConfigId || undefined,
+          },
+          {
+            signal: controller.signal,
+            onEvent: (event) => {
+              if (askSeqRef.current !== seq) return;
+              switch (event.type) {
+                case 'status':
+                  patch({ status: { stage: event.stage, message: event.message } });
+                  break;
+                case 'retrieval':
+                  patch({ stats: event.stats });
+                  break;
+                case 'sources':
+                  patch({ sources: (event.sources || []).map(normaliseSource).filter(Boolean) });
+                  break;
+                case 'token':
+                  setAsk((prev) =>
+                    prev && prev.id === seq ? { ...prev, content: prev.content + event.text } : prev,
+                  );
+                  break;
+                case 'error':
+                  if (!controller.signal.aborted) {
+                    toast.error(event.message || 'Generation failed');
+                  }
+                  break;
+                default:
+                  break;
+              }
+            },
+          },
+        );
+      } catch (err) {
+        if (!controller.signal.aborted) toast.error(err.message);
+      } finally {
+        askControllerRef.current = null;
+        askStreamingRef.current = null;
+        patch({ streaming: false });
+        await Promise.allSettled([loadMessages(conversationId), refreshConversations()]);
+        setAsk((prev) => (prev && prev.id === seq ? null : prev));
+      }
+    },
+    [activeProject, activeConversationId, refreshConversations, loadMessages, toast],
+  );
+
   useEffect(() => {
     setActiveConversationId(null);
     refreshConversations();
@@ -254,11 +415,34 @@ export function AppProvider({ children }) {
     ],
   );
 
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  const askValue = useMemo(
+    () => ({
+      messages,
+      messageSources,
+      messagesLoading,
+      messagesError,
+      ask,
+      askQuestion,
+      stopAsk,
+    }),
+    [messages, messageSources, messagesLoading, messagesError, ask, askQuestion, stopAsk],
+  );
+
+  return (
+    <AppContext.Provider value={value}>
+      <AskContext.Provider value={askValue}>{children}</AskContext.Provider>
+    </AppContext.Provider>
+  );
 }
 
 export function useApp() {
   const ctx = useContext(AppContext);
   if (!ctx) throw new Error('useApp must be used inside <AppProvider>');
+  return ctx;
+}
+
+export function useAsk() {
+  const ctx = useContext(AskContext);
+  if (!ctx) throw new Error('useAsk must be used inside <AppProvider>');
   return ctx;
 }
