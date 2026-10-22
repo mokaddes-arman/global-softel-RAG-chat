@@ -271,6 +271,18 @@ describe('knowledge base (web links, link lists, collections, crawl jobs)', () =
     expect(download.text).toContain('# Shared');
   });
 
+  it('builds a markdown file for an uploaded HTML document', async () => {
+    const docId = await h.uploadAndIndex(
+      project.id,
+      'release-notes.html',
+      '<!doctype html><html><head><title>Release Notes</title></head><body><div class="shell"><div class="content">Release notes are published every Friday.</div></div></body></html>',
+    );
+
+    const preview = await h.request(h.getApp()).get(`/api/documents/${docId}/markdown`).expect(200);
+    expect(preview.body.markdown.filename).toBe('release-notes.md');
+    expect(preview.body.markdown.markdown).toContain('Release notes are published every Friday.');
+  });
+
   it('shares a crawled page as markdown with its source url', async () => {
     const res = await h.request(h.getApp())
       .post(`/api/projects/${project.id}/links`)

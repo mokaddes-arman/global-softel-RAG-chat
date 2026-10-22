@@ -13,7 +13,7 @@
 
 const http = require('node:http');
 const { test, expect } = require('@playwright/test');
-const { createProject } = require('./helpers');
+const { createProject, uploadAndIndex } = require('./helpers');
 
 /** A local page the crawler fetches exactly like a public documentation page. */
 function startFixtureServer() {
@@ -127,6 +127,35 @@ test('shares a document as a markdown file that can be viewed and downloaded', a
     row.getByTitle('Download the shared Markdown file').click(),
   ]);
   expect(download.suggestedFilename()).toBe('Fixture-Page.md');
+});
+
+test('an uploaded HTML file is parsed and shared as markdown', async ({ page }) => {
+  test.setTimeout(240_000);
+
+  // Container-based markup: no <p> tags at all, which used to index nothing.
+  await uploadAndIndex(
+    project.id,
+    'release-notes.html',
+    '<!doctype html><html><head><title>Platform Release Notes</title></head><body>' +
+      '<div class="shell"><div class="content">' +
+      '<div class="lead">Version 2.0 adds support for SSO.</div>' +
+      '<ul><li>Faster indexing</li></ul>' +
+      '</div></div></body></html>',
+    { type: 'text/html' },
+  );
+
+  await openDocuments(page);
+  await page.getByRole('tab', { name: 'View documents' }).click();
+
+  const row = page.locator('table tbody tr').filter({ hasText: 'release-notes' });
+  await expect(row).toBeVisible({ timeout: 60_000 });
+
+  await row.getByRole('button', { name: 'View .md' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText('Version 2.0 adds support for SSO.')).toBeVisible();
+  await expect(dialog.getByText('Faster indexing')).toBeVisible();
+  await page.keyboard.press('Escape');
 });
 
 test('creates link lists and collections from the knowledge base', async ({ page }) => {
