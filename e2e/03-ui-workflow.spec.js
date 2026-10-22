@@ -139,6 +139,53 @@ test('upload a document, ask a question and read the cited answer', async ({ pag
   expect(pageErrors, 'no uncaught page errors').toEqual([]);
 });
 
+test('a generation keeps running while the user opens another page', async ({ page }) => {
+  test.setTimeout(240_000);
+
+  const pageErrors = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+
+  // Seed the corpus through the API; the browser-facing part is the point here.
+  const project = await createProject(`UI Background ${Date.now()}`);
+  await uploadAndIndex(project.id, 'platform-api.md', SAMPLE_DOCUMENT);
+
+  // Hold the answer request open so we can navigate away mid-flight and come
+  // back before it is answered.
+  await page.route('**/api/conversations/*/messages', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 4000));
+    await route.continue();
+  });
+
+  await page.goto('/');
+  await page.locator('aside select').selectOption({ label: project.name });
+
+  // --- ask, then leave the chat before the request is answered --------------
+  const composer = page.getByPlaceholder(/Ask a question/);
+  await expect(composer).toBeEnabled();
+  await composer.fill(SAMPLE_QUESTION);
+  await page.getByRole('button', { name: 'Send' }).click();
+  await expect(page.getByRole('button', { name: 'Stop' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Documents' }).click();
+  await expect(page.getByRole('heading', { name: 'Documents' })).toBeVisible();
+
+  // --- return while it is still generating: the live exchange is restored ---
+  await page.getByRole('button', { name: 'Chat' }).click();
+  await expect(page.getByText(SAMPLE_QUESTION).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Stop' })).toBeVisible();
+
+  // --- the answer arrives, so nothing was cancelled by the page switch ------
+  await expect(page.getByText(GROUNDED_ANSWER).first()).toBeVisible({ timeout: 30_000 });
+
+  // --- and the new conversation took its title from the first question ------
+  await expect(
+    page.locator('aside').getByRole('button').filter({ hasText: 'rate limit per minute' }).first(),
+  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: /rate limit per minute/ })).toBeVisible();
+
+  expect(pageErrors, 'no uncaught page errors').toEqual([]);
+});
+
 test('the model usage page reports per-model token usage', async ({ page }) => {
   test.setTimeout(120_000);
 

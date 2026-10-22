@@ -100,6 +100,37 @@ describe('chat and grounded answers', () => {
     await h.request(h.getApp()).get(`/api/conversations/${conversation.id}`).expect(404);
   });
 
+  it('names a new conversation from its first question', async () => {
+    const conversation = await h.createConversation(project.id);
+    expect(conversation.title).toBe('New conversation');
+
+    await h.ask(conversation.id, 'What is the session timeout?');
+
+    const full = await h.request(h.getApp()).get(`/api/conversations/${conversation.id}`).expect(200);
+    expect(full.body.conversation.title).toBe('What is the session timeout?');
+  });
+
+  it('names the conversation even when the answer fails, and never overwrites a chosen title', async () => {
+    const failing = await h.createConversation(project.id);
+    const { config } = require('../../src/config/env');
+    const original = config.disableHostedAi;
+    config.disableHostedAi = true;
+    try {
+      await h.ask(failing.id, 'Explain the deployment schedule');
+    } finally {
+      config.disableHostedAi = original;
+    }
+
+    let full = await h.request(h.getApp()).get(`/api/conversations/${failing.id}`).expect(200);
+    expect(full.body.conversation.title).toBe('Explain the deployment schedule');
+
+    // A title the user supplied is preserved.
+    const custom = await h.createConversation(project.id, { title: 'My title' });
+    await h.ask(custom.id, 'Some other question');
+    full = await h.request(h.getApp()).get(`/api/conversations/${custom.id}`).expect(200);
+    expect(full.body.conversation.title).toBe('My title');
+  });
+
   it('refuses to generate when hosted AI is disabled', async () => {
     const { config } = require('../../src/config/env');
     const original = config.disableHostedAi;

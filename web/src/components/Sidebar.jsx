@@ -132,15 +132,12 @@ function ConversationList() {
   const [pendingDelete, setPendingDelete] = useState(null);
   const [busy, setBusy] = useState(false);
 
-  const startNew = async () => {
+  // Start a fresh chat locally. The conversation row is created when the first
+  // question is sent, so an unused "New conversation" never litters the list
+  // and the title is derived from that first question.
+  const startNew = () => {
     if (!activeProject) return;
-    try {
-      const data = await api.createConversation(activeProject.id, {});
-      await refreshConversations();
-      setActiveConversationId(data.conversation.id);
-    } catch (err) {
-      toast.error(err.message);
-    }
+    setActiveConversationId(null);
   };
 
   const confirmDelete = async () => {

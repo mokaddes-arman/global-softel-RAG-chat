@@ -250,6 +250,12 @@ async function ask({ conversationId, question, emit = () => {}, signal, options 
   );
   const userMessage = userRows[0];
 
+  // Name the conversation from its very first question, before any work that
+  // can fail. Deriving it later (only on success) left conversations stuck on
+  // the default "New conversation" title whenever the answer failed or was
+  // stopped, and made a retry unable to name the conversation at all.
+  await titleFromFirstQuestion(conversationId, trimmed);
+
   // Create the assistant placeholder NOW, before anything that can fail.
   // Whatever happens next is written back to this row, so the conversation
   // always ends up with a visible assistant bubble.
@@ -456,7 +462,7 @@ async function ask({ conversationId, question, emit = () => {}, signal, options 
         latencyMs: Date.now() - startedAt,
         retrievalMeta: { noEvidence: true, stats: retrievalStats, error: retrievalError?.message || null },
       });
-      await touchConversation(conversationId, userMessage, { provider: providerConfig.provider, model: providerConfig.model });
+      await touchConversation(conversationId, { provider: providerConfig.provider, model: providerConfig.model });
       emit({ type: 'sources', sources: [] });
       emit({ type: 'done', messageId: assistantMessageId, message: { id: assistantMessageId, content: explanation }, sources: [], noEvidence: true });
       return {
@@ -580,7 +586,7 @@ async function ask({ conversationId, question, emit = () => {}, signal, options 
       await persistSources(tx, assistantMessageId, conversation.project_id, sources);
     });
 
-    await touchConversation(conversationId, userMessage, { provider: providerConfig.provider, model: actualModel });
+    await touchConversation(conversationId, { provider: providerConfig.provider, model: actualModel });
     emit({ type: 'done', messageId: assistantMessageId, latencyMs, usage, model: actualModel });
 
     return {
@@ -650,19 +656,32 @@ async function persistSources(tx, messageId, projectId, sources) {
   }
 }
 
-async function touchConversation(conversationId, userMessage, { provider, model }) {
-  const { rows } = await query('SELECT title, (SELECT COUNT(*)::int FROM messages WHERE conversation_id = $1) AS n FROM conversations WHERE id = $1', [
-    conversationId,
-  ]);
-  const isFirstExchange = (rows[0]?.n ?? 0) <= 2;
+/**
+ * Name a conversation from its first question.
+ *
+ * Only the first question names it, and only when the title is still the
+ * default — a title supplied at creation time or set with "Rename" is never
+ * overwritten.
+ */
+async function titleFromFirstQuestion(conversationId, question) {
   await query(
     `UPDATE conversations
-     SET updated_at = now(),
-         provider = COALESCE($2, provider),
-         model = COALESCE($3, model),
-         title = CASE WHEN $4 THEN $5 ELSE title END
-     WHERE id = $1`,
-    [conversationId, provider, model, isFirstExchange, deriveTitle(userMessage.content)],
+        SET title = $2
+      WHERE id = $1
+        AND (title IS NULL OR btrim(title) = '' OR title = 'New conversation')
+        AND (SELECT COUNT(*)::int FROM messages WHERE conversation_id = $1 AND role = 'user') = 1`,
+    [conversationId, deriveTitle(question)],
+  );
+}
+
+async function touchConversation(conversationId, { provider, model }) {
+  await query(
+    `UPDATE conversations
+        SET updated_at = now(),
+            provider = COALESCE($2, provider),
+            model = COALESCE($3, model)
+      WHERE id = $1`,
+    [conversationId, provider, model],
   );
 }
 

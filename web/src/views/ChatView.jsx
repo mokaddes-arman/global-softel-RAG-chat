@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useApp } from '../store';
-import { api, askStream } from '../api';
+import { useApp, useAsk } from '../store';
+import { api } from '../api';
 import {
   Badge,
   Button,
@@ -26,7 +26,7 @@ import {
 } from '../components/icons';
 import { Markdown } from '../components/Markdown';
 import { SourceList } from '../components/SourceList';
-import { groupSourcesByMessage, normaliseSource } from '../lib/sources';
+import { groupSourcesByMessage } from '../lib/sources';
 import { formatDuration } from '../lib/format';
 
 const LIVE_ID = '__streaming__';
@@ -358,19 +358,16 @@ export function ChatView() {
     refreshConversations,
     conversations,
   } = useApp();
+  const {
+    messages,
+    messageSources,
+    messagesLoading,
+    messagesError,
+    ask,
+    askQuestion,
+    stopAsk,
+  } = useAsk();
   const toast = useToast();
-
-  const [messages, setMessages] = useState([]);
-  const [sources, setSources] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState(null);
-
-  const [pendingQuestion, setPendingQuestion] = useState(null);
-  const [pendingContent, setPendingContent] = useState('');
-  const [pendingSources, setPendingSources] = useState([]);
-  const [pendingStatus, setPendingStatus] = useState(null); // {stage, message}
-  const [pendingStats, setPendingStats] = useState(null);
-  const [streaming, setStreaming] = useState(false);
 
   const [crossProject, setCrossProject] = useState(false);
   const [allowUngrounded, setAllowUngrounded] = useState(false);
@@ -382,40 +379,26 @@ export function ChatView() {
   const [deleting, setDeleting] = useState(false);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
 
-  const abortRef = useRef(null);
   const bottomRef = useRef(null);
+
+  // Only the ask belonging to the conversation on screen is shown inline. A
+  // generation that is running for another conversation keeps going in the
+  // background; switching back to it shows the live buffer again.
+  const activeAsk = ask && ask.conversationId === activeConversationId ? ask : null;
+  const streaming = Boolean(ask?.streaming);
+
+  const pendingQuestion = activeAsk?.question || null;
+  const pendingContent = activeAsk?.content || '';
+  const pendingSources = activeAsk?.sources || [];
+  const pendingStatus = activeAsk?.status || null;
+  const pendingStats = activeAsk?.stats || null;
 
   const conversation = useMemo(
     () => conversations.find((c) => c.id === activeConversationId) || null,
     [conversations, activeConversationId],
   );
 
-  const sourcesByMessage = useMemo(() => groupSourcesByMessage(sources), [sources]);
-
-  const loadMessages = useCallback(async (id) => {
-    if (!id) {
-      setMessages([]);
-      setSources([]);
-      return;
-    }
-    setLoading(true);
-    setLoadError(null);
-    try {
-      const data = await api.conversationMessages(id);
-      setMessages(data.messages || []);
-      setSources(data.sources || []);
-    } catch (err) {
-      setLoadError(err);
-      setMessages([]);
-      setSources([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadMessages(activeConversationId);
-  }, [activeConversationId, loadMessages]);
+  const sourcesByMessage = useMemo(() => groupSourcesByMessage(messageSources), [messageSources]);
 
   useEffect(() => {
     api
@@ -429,94 +412,11 @@ export function ChatView() {
   }, [messages.length, pendingContent, pendingQuestion]);
 
   const runAsk = useCallback(
-    async (question) => {
-      if (!activeProject) return;
-      let convId = activeConversationId;
-      if (!convId) {
-        try {
-          const data = await api.createConversation(activeProject.id, {});
-          convId = data.conversation.id;
-          setActiveConversationId(convId);
-          await refreshConversations();
-        } catch (err) {
-          toast.error(err.message);
-          return;
-        }
-      }
-
-      const controller = new AbortController();
-      abortRef.current = controller;
-      setPendingQuestion(question);
-      setPendingContent('');
-      setPendingSources([]);
-      setPendingStats(null);
-      setPendingStatus({ stage: 'starting', message: 'Starting…' });
-      setStreaming(true);
-
-      try {
-        await askStream(
-          convId,
-          {
-            question,
-            crossProject,
-            allowUngroundedAnswer: allowUngrounded,
-            llmConfigId: llmConfigId || undefined,
-          },
-          {
-            signal: controller.signal,
-            onEvent: (event) => {
-              switch (event.type) {
-                case 'status':
-                  setPendingStatus({ stage: event.stage, message: event.message });
-                  break;
-                case 'retrieval':
-                  setPendingStats(event.stats);
-                  break;
-                case 'sources':
-                  setPendingSources((event.sources || []).map(normaliseSource));
-                  break;
-                case 'token':
-                  setPendingContent((prev) => prev + event.text);
-                  break;
-                case 'error':
-                  if (!controller.signal.aborted) {
-                    toast.error(event.message || 'Generation failed');
-                  }
-                  break;
-                default:
-                  break;
-              }
-            },
-          },
-        );
-      } catch (err) {
-        if (!controller.signal.aborted) toast.error(err.message);
-      } finally {
-        abortRef.current = null;
-        await loadMessages(convId);
-        await refreshConversations();
-        setPendingQuestion(null);
-        setPendingContent('');
-        setPendingSources([]);
-        setPendingStats(null);
-        setPendingStatus(null);
-        setStreaming(false);
-      }
-    },
-    [
-      activeProject,
-      activeConversationId,
-      crossProject,
-      allowUngrounded,
-      llmConfigId,
-      setActiveConversationId,
-      refreshConversations,
-      loadMessages,
-      toast,
-    ],
+    (question) => askQuestion({ question, crossProject, allowUngrounded, llmConfigId }),
+    [askQuestion, crossProject, allowUngrounded, llmConfigId],
   );
 
-  const stop = () => abortRef.current?.abort();
+  const stop = stopAsk;
 
   const retryFrom = (messageId) => {
     const index = messages.findIndex((m) => m.id === messageId);
@@ -559,7 +459,7 @@ export function ChatView() {
     );
   }
 
-  const showEmptyState = !activeConversationId && !pendingQuestion && !loading;
+  const showEmptyState = !activeConversationId && !pendingQuestion && !messagesLoading;
 
   return (
     <div className="flex h-full flex-col">
@@ -601,9 +501,9 @@ export function ChatView() {
 
       {/* Messages */}
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
-        {loadError && (
+        {messagesError && (
           <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
-            Could not load this conversation: {loadError.message}
+            Could not load this conversation: {messagesError.message}
           </div>
         )}
 
@@ -697,6 +597,11 @@ export function ChatView() {
                 ))}
               </select>
             </label>
+          )}
+          {ask?.streaming && ask.conversationId !== activeConversationId && (
+            <span className="text-[11px] text-amber-600 dark:text-amber-400">
+              An answer is still being generated in another conversation…
+            </span>
           )}
         </div>
       </div>
