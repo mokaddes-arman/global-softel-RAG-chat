@@ -74,6 +74,12 @@ npm run dev
 #   open http://localhost:5173
 ```
 
+The backend dev script intentionally runs **without file-watching**. PGlite is a single
+process, and restarting it while it is writing can abort/corrupt the embedded database.
+The UI still hot-reloads; after changing backend files, stop the stack with `Ctrl+C` and
+run `npm run dev` again. Do not run two dev stacks at once — the second API will fail with
+“database already open”. Use a real PostgreSQL (`DATABASE_URL`) if you want file-watching.
+
 **Production-style single origin** (the backend serves the built SPA, one port):
 
 ```powershell
@@ -316,7 +322,7 @@ Run from the repository root:
 | `npm install` | Install all workspaces. |
 | `npm run setup` | Pre-flight check: Node/npm, `.env`, master key, storage, optional tools. |
 | `npm run dev` | API (`:3001`) + Vite UI (`:5173`) together. |
-| `npm run dev:server` / `npm run dev:web` | Run just one side. |
+| `npm run dev:server` / `npm run dev:web` | Run just one side. The server does not file-watch; restart it after backend edits. |
 | `npm run build` | Build the React SPA into `web/dist`. |
 | `npm start` | Serve API **and** built SPA from one origin (`:3001`). |
 | `npm run db:migrate` / `npm run db:status` | Apply / inspect migrations. |
@@ -449,8 +455,10 @@ These are real and worth knowing before you rely on the app:
 3. **The embedded PGlite database is single-process.** An exclusive lock
    (`storage/pgdata.lock`) makes a second server, `npm run check`, migration or test run
    fail with a clear “already open” message instead of writing to the same directory.
-   Use a real PostgreSQL (`DATABASE_URL`) for concurrency. If startup still aborts with
-   `Aborted()`, the data directory itself is corrupt: stop every server, move
+   For that reason the backend dev script runs without `--watch`: restart it with
+   `Ctrl+C` + `npm run dev` after backend edits, and never run two dev stacks. Use a real
+   PostgreSQL (`DATABASE_URL`) if you need concurrency or file-watching. If startup still
+   aborts with `Aborted()`, the data directory itself is corrupt: stop every server, move
    `storage/pgdata` aside, then run `npm run db:migrate` to create a fresh database.
    Uploaded source files remain under `storage/uploads`.
 4. **E2E tests exercise the `mock` LLM and `hash` embeddings**, so they verify behaviour and

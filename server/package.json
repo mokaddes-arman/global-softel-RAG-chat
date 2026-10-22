@@ -5,7 +5,7 @@
   "type": "commonjs",
   "main": "src/index.js",
   "scripts": {
-    "dev": "node --watch src/index.js",
+    "dev": "node src/index.js",
     "start": "node src/index.js",
     "db:migrate": "node src/db/cli.js migrate",
     "db:status": "node src/db/cli.js status",
