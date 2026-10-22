@@ -18,6 +18,7 @@
  *   exec(sql)           -> run a multi-statement script
  *   close()
  */
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { AsyncLocalStorage } = require('node:async_hooks');
@@ -113,6 +114,84 @@ async function createPostgresAdapter() {
   };
 }
 
+/**
+ * PGlite exposes a single connection and has no cross-process lock. If two
+ * processes open the same data directory (for example `npm run dev` running
+ * while `npm run check` or a migration is executed), their writes interleave
+ * and the WAL can be left without a valid checkpoint, which makes the next
+ * startup abort. Take an exclusive lock file next to the data directory so the
+ * second process fails with a clear message instead of corrupting the database.
+ */
+function isProcessAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM means the process exists but belongs to another user.
+    return err.code === 'EPERM';
+  }
+}
+
+function acquirePgliteLock(dataDir) {
+  const lockPath = `${dataDir}.lock`;
+  const token = crypto.randomUUID();
+  const contents = JSON.stringify({ pid: process.pid, token, createdAt: new Date().toISOString() });
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const fd = fs.openSync(lockPath, 'wx');
+      try {
+        fs.writeFileSync(fd, contents);
+      } finally {
+        fs.closeSync(fd);
+      }
+
+      let released = false;
+      const release = () => {
+        if (released) return;
+        released = true;
+        try {
+          const current = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+          if (current.token === token) fs.unlinkSync(lockPath);
+        } catch {
+          /* already gone */
+        }
+      };
+      process.once('exit', release);
+      return release;
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+
+      let owner = null;
+      try {
+        owner = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+      } catch {
+        /* unreadable lock: treat it as stale */
+      }
+
+      if (owner && isProcessAlive(owner.pid)) {
+        throw new AppError(
+          `The local database is already open by process ${owner.pid}. ` +
+            'Stop the other server, check or test run before starting this one.',
+          { code: Codes.DATABASE_UNAVAILABLE, status: 503 },
+        );
+      }
+
+      try {
+        fs.unlinkSync(lockPath);
+      } catch {
+        /* another process may have removed it first */
+      }
+    }
+  }
+
+  throw new AppError('Could not lock the local database directory.', {
+    code: Codes.DATABASE_UNAVAILABLE,
+    status: 503,
+  });
+}
+
 async function createPgliteAdapter() {
   const pgliteMod = require('@electric-sql/pglite');
   const vectorMod = require('@electric-sql/pglite-pgvector');
@@ -124,14 +203,29 @@ async function createPgliteAdapter() {
   const dataDir = config.paths.pglite;
   fs.mkdirSync(dataDir, { recursive: true });
 
-  const db = new PGlite(dataDir, { extensions: { vector } });
-  await db.waitReady;
-
-  // Confirm the pgvector extension really loaded; retrieval depends on it.
+  const releaseLock = acquirePgliteLock(dataDir);
+  let db;
   try {
-    await db.exec('CREATE EXTENSION IF NOT EXISTS vector;');
+    db = new PGlite(dataDir, { extensions: { vector } });
+    await db.waitReady;
+
+    // Confirm the pgvector extension really loaded; retrieval depends on it.
+    try {
+      await db.exec('CREATE EXTENSION IF NOT EXISTS vector;');
+    } catch (err) {
+      logger.warn({ err: err.message }, 'Could not create the vector extension in PGlite');
+    }
   } catch (err) {
-    logger.warn({ err: err.message }, 'Could not create the vector extension in PGlite');
+    releaseLock();
+    if (/Aborted\(\)/.test(String(err?.message))) {
+      throw new AppError(
+        'The embedded database could not start because its data directory is corrupt or was ' +
+          'closed while another process was using it. Stop every running server/test and move ' +
+          `"${dataDir}" aside, then run "npm run db:migrate" to create a fresh database.`,
+        { code: Codes.DATABASE_UNAVAILABLE, status: 503, cause: err },
+      );
+    }
+    throw err;
   }
 
   logger.info({ dataDir }, 'Database: connected to embedded PostgreSQL (PGlite + pgvector)');
@@ -155,7 +249,13 @@ async function createPgliteAdapter() {
         return fn(handle);
       });
     },
-    close: async () => db.close(),
+    close: async () => {
+      try {
+        await db.close();
+      } finally {
+        releaseLock();
+      }
+    },
   };
 }
 
@@ -208,4 +308,4 @@ async function closeDb() {
 /** Test helper: report which backend is in use. */
 const dbKind = () => adapter?.kind ?? null;
 
-module.exports = { initDb, getDb, query, withTransaction, closeDb, dbKind, normaliseResult };
+module.exports = { initDb, getDb, query, withTransaction, closeDb, dbKind, normaliseResult, acquirePgliteLock };

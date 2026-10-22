@@ -368,8 +368,13 @@ These are real and worth knowing before you rely on the app:
    (~90 MB) is fetched into `storage/models` the first time you index a document and needs
    network access. For a fully offline run, set `DEFAULT_EMBEDDING_PROVIDER=hash` — but note
    `hash` embeddings are **deterministic and not semantic**, suitable for development only.
-3. **The embedded PGlite database is single-process.** Do not run two server instances
-   against the same `storage/pgdata`. Use a real PostgreSQL (`DATABASE_URL`) for concurrency.
+3. **The embedded PGlite database is single-process.** An exclusive lock
+   (`storage/pgdata.lock`) makes a second server, `npm run check`, migration or test run
+   fail with a clear “already open” message instead of writing to the same directory.
+   Use a real PostgreSQL (`DATABASE_URL`) for concurrency. If startup still aborts with
+   `Aborted()`, the data directory itself is corrupt: stop every server, move
+   `storage/pgdata` aside, then run `npm run db:migrate` to create a fresh database.
+   Uploaded source files remain under `storage/uploads`.
 4. **E2E tests exercise the `mock` LLM and `hash` embeddings**, so they verify behaviour and
    citation integrity, not answer quality. Answer quality must be judged with a real model.
 5. **The retrieval eval ships with an offline hash-embedding run.** It is a wiring/grounding
