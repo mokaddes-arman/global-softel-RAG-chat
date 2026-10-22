@@ -103,6 +103,33 @@ describe('structured data parsers', () => {
     expect(table.text).toContain('port | 3000');
   });
 
+  it('extracts HTML whose text lives in divs instead of paragraphs', () => {
+    const parsed = html.parseHtml(
+      B('<html><head><title>Release Notes</title></head><body><div class="layout"><div class="content"><div class="headline">Release Notes</div><div class="body">Version 2.0 adds support for SSO.</div><ul><li>Faster indexing</li><li>Safer crawls</li></ul></div></div></body></html>'),
+    );
+    const all = parsed.blocks.map((b) => b.text).join('\n');
+    expect(parsed.metadata.title).toBe('Release Notes');
+    expect(all).toContain('Version 2.0 adds support for SSO.');
+    expect(all).toContain('Faster indexing');
+    expect(parsed.blocks.some((b) => b.kind === 'list' && b.text === 'Safer crawls')).toBe(true);
+  });
+
+  it('decodes HTML according to its declared charset', () => {
+    const buffer = Buffer.from(
+      '<html><head><meta charset="windows-1252"><title>Pricing</title></head><body><p>Price \x80 5</p></body></html>',
+      'latin1',
+    );
+    const parsed = html.parseHtml(buffer);
+    expect(parsed.blocks.map((b) => b.text).join(' ')).toContain('€');
+  });
+
+  it('decodes UTF-16 HTML files', () => {
+    const text = '<html><body><div>Unicode ✓ content</div></body></html>';
+    const buffer = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, 'utf16le')]);
+    const parsed = html.parseHtml(buffer);
+    expect(parsed.blocks.map((b) => b.text).join(' ')).toContain('Unicode ✓ content');
+  });
+
   it('flattens XML element paths', () => {
     const parsed = xml.parseXml(B('<config><db host="localhost" port="5432"/><mode>prod</mode></config>'), { filename: 'c.xml' });
     const all = parsed.blocks.map((b) => b.text).join('\n');
