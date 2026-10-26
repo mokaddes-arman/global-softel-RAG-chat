@@ -174,7 +174,8 @@ providers.groq = createOpenAICompatibleProvider({
   defaultModel: 'openai/gpt-oss-120b',
   knownModels: [
     { id: 'openai/gpt-oss-120b' },
-    { id: 'qwen/qwen3.8-27b' },
+    { id: 'qwen/qwen3-32b' },
+    { id: 'llama-3.3-70b-versatile' },
   ],
 });
 

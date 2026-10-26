@@ -248,21 +248,23 @@ async function resolveChatProvider({ configId } = {}) {
     // offline mock is only registered in the test suite.
     const requested = String(config.defaultLlmProvider || '').trim();
     const provider = isSupportedLlmProvider(requested) ? requested : 'openrouter';
-    const modelExplicit = Boolean(String(process.env.DEFAULT_LLM_MODEL || '').trim());
-    let model = config.defaultLlmModel;
+    let model;
     let baseUrl = null;
     let apiKey = null;
 
     if (provider === 'groq') {
-      model = modelExplicit ? config.defaultLlmModel : (config.groq.model || config.groq.models[0] || 'openai/gpt-oss-120b');
+      // DEFAULT_LLM_MODEL belongs to the *default* provider. When the default is
+      // Groq, GROQ_MODEL wins so an OpenRouter model id can never be sent to Groq.
+      model =
+        config.groq.model || config.groq.models[0] || config.defaultLlmModel || 'openai/gpt-oss-120b';
       baseUrl = config.groq.baseUrl || null;
       apiKey = config.groq.apiKey || null;
-    } else if (provider === 'mock') {
-      model = modelExplicit ? config.defaultLlmModel : 'mock';
     } else {
-      model = modelExplicit
-        ? config.defaultLlmModel
-        : (config.openrouter.model || config.openrouter.models[0] || 'nvidia/nemotron-3-ultra-550b-a55b:free');
+      model =
+        config.defaultLlmModel ||
+        config.openrouter.model ||
+        config.openrouter.models[0] ||
+        'nvidia/nemotron-3-ultra-550b-a55b:free';
       baseUrl = config.openrouter.baseUrl || null;
       apiKey = config.openrouter.apiKey || null;
     }
