@@ -36,7 +36,7 @@ const testSchema = z.object({
 
 const embeddingSchema = z.object({
   name: z.string().trim().min(1).max(120),
-  provider: z.enum(['local', 'ollama', 'openai', 'hash']),
+  provider: z.enum(['local', 'ollama', 'openai', 'hash', 'cloudflare']),
   model: z.string().trim().min(1).max(300),
   dimension: z.coerce.number().int().min(1).max(8192),
   baseUrl: z.union([z.string().trim().url(), z.literal('')]).optional().nullable(),

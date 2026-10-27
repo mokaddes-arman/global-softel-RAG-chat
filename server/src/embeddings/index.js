@@ -22,8 +22,102 @@ const { AppError, Codes } = require('../lib/errors');
 const providers = {};
 
 // ---------------------------------------------------------------------------
-// local (transformers.js)
+// cloudflare (Workers AI)
 // ---------------------------------------------------------------------------
+providers.cloudflare = {
+  id: 'cloudflare',
+  label: 'Cloudflare Workers AI',
+  requiresKey: true,
+  requiresBaseUrl: false,
+  defaultBaseUrl: 'https://api.cloudflare.com/client/v4',
+  knownModels: [
+    { id: '@cf/baai/bge-base-en-v1.5', dimension: 768 },
+    { id: '@cf/qwen/qwen3-embedding-0.6b', dimension: 1024 },
+    { id: '@cf/baai/bge-m3', dimension: 1024 },
+    { id: '@cf/baai/bge-large-en-v1.5', dimension: 1024 },
+    { id: '@cf/baai/bge-small-en-v1.5', dimension: 384 },
+    { id: '@cf/microsoft/multilingual-e5-small', dimension: 384 },
+  ],
+  async embed(texts, opts) {
+    const apiKey = opts.apiKey || process.env.WORKER_API_KEY || process.env.CLOUDFLARE_API_TOKEN || process.env.CLOUDFLARE_API_KEY;
+    if (!apiKey) {
+      throw new AppError('This embedding provider requires an API key (Cloudflare API token).', {
+        code: Codes.INVALID_API_KEY,
+        status: 400,
+      });
+    }
+    const accountId =
+      opts.extra?.accountId ||
+      opts.extra?.account_id ||
+      process.env.WORKER_ACCOUNT_ID ||
+      process.env.CLOUDFLARE_ACCOUNT_ID ||
+      process.env.CF_ACCOUNT_ID;
+    if (!accountId) {
+      throw new AppError('Cloudflare Workers AI requires an Account ID (set extra.accountId or WORKER_ACCOUNT_ID/CLOUDFLARE_ACCOUNT_ID).', {
+        code: Codes.VALIDATION,
+        status: 400,
+      });
+    }
+    const base = (opts.baseUrl || this.defaultBaseUrl).replace(/\/+$/, '');
+    const model = opts.model || '@cf/baai/bge-base-en-v1.5';
+    const url = `${base}/accounts/${accountId}/ai/run/${model}`;
+    const res = await fetchWithTimeout(
+      url,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({ text: texts }),
+      },
+      config.embeddingRequestTimeoutMs,
+      opts.signal,
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      return mapCloudflareEmbedError(res.status, text);
+    }
+    const json = await res.json();
+    // Cloudflare returns { result: { data: [[...],[...]] } } or { result: { data: [...] } } depending on model/version
+    let data = json.result?.data || json.result || json.data;
+    if (Array.isArray(data) && Array.isArray(data[0]) && typeof data[0][0] === 'number') {
+      return data;
+    }
+    if (Array.isArray(data) && typeof data[0] === 'number') {
+      return [data];
+    }
+    // Sometimes shape is different
+    if (json.result && Array.isArray(json.result)) {
+      // try to detect
+      if (Array.isArray(json.result[0])) return json.result;
+    }
+    throw new AppError('Cloudflare Workers AI returned an unexpected embedding response.', {
+      code: Codes.EMBEDDING_UNAVAILABLE,
+      status: 502,
+    });
+  },
+};
+
+function mapCloudflareEmbedError(status, bodyText) {
+  const snippet = String(bodyText || '').slice(0, 300);
+  if (status === 401 || status === 403) {
+    throw new AppError('The Cloudflare API token was rejected.', { code: Codes.INVALID_API_KEY, status: 401 });
+  }
+  if (status === 404) {
+    throw new AppError('The Cloudflare Workers AI model was not found.', { code: Codes.MODEL_NOT_FOUND, status: 404 });
+  }
+  if (status === 429) {
+    throw new AppError('Cloudflare Workers AI rate-limited the request.', { code: Codes.RATE_LIMITED, status: 429 });
+  }
+  if (status === 400) {
+    throw new AppError(`Cloudflare Workers AI bad request: ${snippet}`, { code: Codes.VALIDATION, status: 400 });
+  }
+  throw new AppError(`Cloudflare Workers AI error (HTTP ${status}). ${snippet}`, {
+    code: Codes.EMBEDDING_UNAVAILABLE,
+    status: 502,
+  });
+}
 let localPipelinePromise = null;
 let localPipelineModel = null;
 
